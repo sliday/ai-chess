@@ -1,0 +1,1220 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chess Arena</title>
+    <!-- DaisyUI for UI components on top of TailwindCSS -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@3.7.3/dist/full.css" rel="stylesheet" type="text/css" />
+    <!-- TailwindCSS for utility-first styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Confetti library -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        /* Chess board styling */
+        .chess-board {
+            background-color: #2d2d2d;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            max-width: 100%;
+            margin: 0 auto;
+            overflow-x: auto;
+        }
+        
+        .chess-grid {
+            display: inline-block;
+            border: 2px solid #333;
+            font-family: monospace;
+            font-size: 1.5rem;
+            font-weight: bold;
+            user-select: none;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.3);
+        }
+        
+        /* Board row styling */
+        .board-row {
+            display: flex;
+            height: 2em;
+        }
+        
+        /* Board cell styling */
+        .board-cell {
+            width: 2em;
+            height: 2em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        /* Light and dark squares */
+        .light-square {
+            background-color: #f0d9b5;
+        }
+        
+        .dark-square {
+            background-color: #b58863;
+        }
+        
+        /* Chess piece colors */
+        .piece-white {
+            color: #ffffff;
+            text-shadow: 0px 0px 2px #000;
+        }
+        
+        .piece-black {
+            color: #000000;
+            text-shadow: 0px 0px 1px #fff;
+        }
+        
+        /* Move list & commentary */
+        .move-list, .commentary {
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        
+        /* Special effects for commentary */
+        .blunder-effect {
+            color: #f87272;
+        }
+        
+        .brilliant-effect {
+            color: #fbbd23;
+        }
+        
+        /* Status message styling */
+        .status-message {
+            font-size: 0.85em;
+            font-style: italic;
+            color: #888;
+            border-top: 1px solid #444;
+            padding-top: 0.5em;
+            margin-top: 0.5em;
+        }
+        
+        .commentary-content {
+            margin-bottom: 0.5em;
+        }
+        
+        /* Mobile optimizations */
+        @media (max-width: 640px) {
+            .chess-ascii-art {
+                font-size: 1.2rem; /* Still bigger than original on mobile */
+            }
+            
+            .chess-board {
+                padding: 0.5rem;
+            }
+            
+            .move-list, .commentary {
+                max-height: 120px;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-base-300">
+    <!-- Simple header -->
+    <div class="navbar bg-base-200">
+        <div class="flex-1">
+            <span class="font-bold text-xl px-2">AI Chess Arena</span>
+        </div>
+        <div class="flex-none">
+            <button id="newGameBtn" class="btn btn-sm btn-primary">New Game</button>
+        </div>
+    </div>
+
+    <div class="container mx-auto p-2">
+        <!-- Main content -->
+        <div class="grid grid-cols-1 gap-4">
+            <!-- Players -->
+            <div class="card bg-base-100 shadow-sm p-2">
+                <div class="stats shadow text-sm">
+                    <div class="stat p-2">
+                        <div class="stat-title">White</div>
+                        <div id="model1Name" class="font-medium truncate text-sm">-</div>
+                    </div>
+                    <div class="stat p-2">
+                        <div class="stat-title">Black</div>
+                        <div id="model2Name" class="font-medium truncate text-sm">-</div>
+                    </div>
+                    <div class="stat p-2">
+                        <div class="stat-title">Status</div>
+                        <div id="gameStatus" class="badge badge-sm font-bold bg-gray-200 text-gray-700">WAITING</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Game content -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <!-- Chess board section -->
+                <div>
+                    <div class="chess-board" id="chessBoard">
+                        <!-- Chess board will be rendered here -->
+                    </div>
+                    
+                    <!-- Replay controls -->
+                    <div class="flex justify-center mt-2 space-x-2" id="replayControls" style="display: none;">
+                        <button class="btn btn-xs" id="replayFirst" title="First move">⏮️</button>
+                        <button class="btn btn-xs" id="replayPrev" title="Previous move">⏪</button>
+                        <span class="px-2 py-1 bg-gray-100 rounded text-xs font-mono" id="replayCounter">0/0</span>
+                        <button class="btn btn-xs" id="replayNext" title="Next move">⏩</button>
+                        <button class="btn btn-xs" id="replayLast" title="Last move">⏭️</button>
+                        <button class="btn btn-xs btn-error" id="replayExit" title="Exit replay">✖️</button>
+                    </div>
+                </div>
+                
+                <!-- Info section -->
+                <div class="grid grid-cols-1 gap-4">
+                    <!-- Commentary -->
+                    <div class="card bg-base-200 shadow-sm">
+                        <div class="p-2">
+                            <h3 class="text-sm font-bold">Commentary</h3>
+                            <div id="commentary" class="commentary text-xs mt-1">Waiting for game to start...</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Moves -->
+                    <div class="card bg-base-200 shadow-sm">
+                        <div class="p-2">
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-sm font-bold">Move History</h3>
+                                <button id="startReplayBtn" class="btn btn-xs btn-outline" title="Replay game" style="display: none;">▶️ Replay</button>
+                            </div>
+                            <div id="moveList" class="move-list text-xs mt-1">No moves yet</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Leaderboard (simplified) -->
+            <div class="card bg-base-100 shadow-sm mt-2">
+                <div class="p-2">
+                    <h2 class="text-md font-bold mb-1">Leaderboard</h2>
+                    <div class="overflow-x-auto">
+                        <table class="table table-compact table-zebra w-full">
+                            <thead>
+                                <tr>
+                                    <th class="text-xs">#</th>
+                                    <th class="text-xs">Model</th>
+                                    <th class="text-xs">Games</th>
+                                    <th class="text-xs">Wins</th>
+                                    <th class="text-xs">Win %</th>
+                                </tr>
+                            </thead>
+                            <tbody id="leaderboardBody" class="text-xs">
+                                <tr>
+                                    <td colspan="5" class="text-center">No games yet</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Hidden model selectors for future games -->
+            <div class="hidden">
+                <select id="model1Select"><option value="random">Random</option></select>
+                <select id="model2Select"><option value="random">Random</option></select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast for notifications -->
+    <div id="toast" class="toast toast-end toast-bottom hidden">
+        <div class="alert alert-info text-xs p-2">
+            <span id="toastMessage">Message</span>
+        </div>
+    </div>
+
+    <!-- Game Over Modal (simplified) -->
+    <dialog id="gameOverModal" class="modal">
+        <div class="modal-box p-4">
+            <h3 class="font-bold text-lg">Game Over</h3>
+            <p id="gameOverMessage" class="py-2 text-sm">The game has ended.</p>
+            <div class="modal-action">
+                <button class="btn btn-sm" onclick="document.getElementById('gameOverModal').close()">Close</button>
+                <button id="playAgainBtn" class="btn btn-sm btn-primary">Play Again</button>
+            </div>
+        </div>
+    </dialog>
+
+    <script>
+        /**
+         * AI Chess Arena - Frontend JavaScript
+         * 
+         * This script handles all the frontend functionality for the AI Chess Arena:
+         * - Initializing the chessboard and UI
+         * - Managing WebSocket connections for real-time updates
+         * - Rendering the chessboard with Unicode chess symbols
+         * - Displaying move history and commentary
+         * - Handling model selection and game controls
+         * - Visual effects for special game events
+         */
+        
+        // Global state variables
+        let socket = null;              // WebSocket connection
+        let currentGameId = null;       // ID of the active game
+        let models = [];                // Available AI models
+        let gameInProgress = false;     // Track if a game is currently being played
+        let lastMove = null;            // Store the last move made for highlighting
+        let gameBoard = [];             // Current state of the chess board
+        let boardHistory = [];          // History of all board states for replay
+        let currentHistoryIndex = -1;   // Current position in history replay
+        let isReplaying = false;        // Whether we're in replay mode
+
+        /**
+         * Initialize the application when the page loads
+         */
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log("AI Chess Arena initializing...");
+            
+            // Initialize the chessboard display
+            initChessBoard();
+            
+            // Load available models from the server
+            await loadModels();
+            
+            // Load the leaderboard data
+            await loadLeaderboard();
+            
+            // Set up event listeners for UI controls
+            document.getElementById('newGameBtn').addEventListener('click', () => {
+                if (gameInProgress) {
+                    if (confirm('A game is currently in progress. Are you sure you want to start a new game?')) {
+                        resetGame();
+                    }
+                } else {
+                    resetGame();
+                }
+            });
+            
+            // Set event listeners for remaining buttons
+            if (document.getElementById('startGameBtn')) {
+                document.getElementById('startGameBtn').addEventListener('click', startGame);
+            }
+            document.getElementById('playAgainBtn').addEventListener('click', resetGame);
+            
+            // Set up replay controls
+            document.getElementById('startReplayBtn').addEventListener('click', startReplay);
+            document.getElementById('replayFirst').addEventListener('click', () => replayMove(0));
+            document.getElementById('replayPrev').addEventListener('click', () => replayMove(currentHistoryIndex - 1));
+            document.getElementById('replayNext').addEventListener('click', () => replayMove(currentHistoryIndex + 1));
+            document.getElementById('replayLast').addEventListener('click', () => replayMove(boardHistory.length - 1));
+            document.getElementById('replayExit').addEventListener('click', exitReplay);
+            
+            // Always start a new game automatically when the page loads
+            startGame();
+            console.log("Initialization complete, auto-starting new game");
+        });
+        
+        /**
+         * Initialize the chess board UI
+         * Calls updateChessBoard with the standard initial position.
+         * Ensures the board is drawn when the page loads.
+         */
+        /**
+         * Initialize the chess board with the standard starting position
+         */
+        function initChessBoard() {
+            // Initial chess position for a standard game
+            const initialPosition = createEmptyBoard();
+            
+            // Set up black pieces (back row)
+            initialPosition[0][0] = {"symbol": "♜", "color": "b"}; // Rook
+            initialPosition[0][1] = {"symbol": "♞", "color": "b"}; // Knight
+            initialPosition[0][2] = {"symbol": "♝", "color": "b"}; // Bishop
+            initialPosition[0][3] = {"symbol": "♛", "color": "b"}; // Queen
+            initialPosition[0][4] = {"symbol": "♚", "color": "b"}; // King
+            initialPosition[0][5] = {"symbol": "♝", "color": "b"}; // Bishop
+            initialPosition[0][6] = {"symbol": "♞", "color": "b"}; // Knight
+            initialPosition[0][7] = {"symbol": "♜", "color": "b"}; // Rook
+            
+            // Set up black pawns
+            for (let col = 0; col < 8; col++) {
+                initialPosition[1][col] = {"symbol": "♟", "color": "b"};
+            }
+            
+            // Set up white pawns
+            for (let col = 0; col < 8; col++) {
+                initialPosition[6][col] = {"symbol": "♟", "color": "w"};
+            }
+            
+            // Set up white pieces (back row)
+            initialPosition[7][0] = {"symbol": "♜", "color": "w"}; // Rook
+            initialPosition[7][1] = {"symbol": "♞", "color": "w"}; // Knight
+            initialPosition[7][2] = {"symbol": "♝", "color": "w"}; // Bishop
+            initialPosition[7][3] = {"symbol": "♛", "color": "w"}; // Queen
+            initialPosition[7][4] = {"symbol": "♚", "color": "w"}; // King
+            initialPosition[7][5] = {"symbol": "♝", "color": "w"}; // Bishop
+            initialPosition[7][6] = {"symbol": "♞", "color": "w"}; // Knight
+            initialPosition[7][7] = {"symbol": "♜", "color": "w"}; // Rook
+
+            // Render the initial board
+            updateChessBoard(initialPosition);
+            console.log("Chessboard initialized with standard starting position");
+        }
+        
+        /**
+         * Helper function to create an empty 8x8 chess board
+         */
+        function createEmptyBoard() {
+            const board = [];
+            for (let row = 0; row < 8; row++) {
+                const boardRow = [];
+                for (let col = 0; col < 8; col++) {
+                    boardRow.push({"symbol": "", "color": ""});
+                }
+                board.push(boardRow);
+            }
+            return board;
+        }
+        
+        /**
+         * Load available AI models from the server
+         * Fetches models from the API and populates the dropdown selectors
+         */
+        async function loadModels() {
+            try {
+                console.log("Fetching available models from server");
+                const response = await fetch('/models');
+                const data = await response.json();
+                models = data.models;
+                console.log(`${models.length} models loaded from server`);
+                
+                // Get references to the dropdown elements
+                const model1Select = document.getElementById('model1Select');
+                const model2Select = document.getElementById('model2Select');
+                
+                // Clear existing options except for the "Random" option (which is always first)
+                while (model1Select.options.length > 1) {
+                    model1Select.remove(1);
+                }
+                while (model2Select.options.length > 1) {
+                    model2Select.remove(1);
+                }
+                
+                // Add each model to both dropdowns
+                models.forEach(model => {
+                    // Use the display name from the server if available, otherwise format it
+                    const displayName = model.display_name || formatModelName(model.id || model);
+                    const modelId = model.id || model;
+                    
+                    // Create and add option for White player (model1)
+                    const option1 = document.createElement('option');
+                    option1.value = modelId;
+                    option1.textContent = displayName;
+                    model1Select.appendChild(option1);
+                    
+                    // Create and add option for Black player (model2)
+                    const option2 = document.createElement('option');
+                    option2.value = modelId;
+                    option2.textContent = displayName;
+                    model2Select.appendChild(option2);
+                });
+                
+                console.log("Model dropdowns populated");
+            } catch (error) {
+                console.error("Error loading models:", error);
+                showToast('Error loading models: ' + error.message);
+            }
+        }
+        
+        // Format model name for display
+        function formatModelName(model) {
+            if (!model) return "Unknown Model";
+            
+            // Check if model is an object (from old format) or string (new format)
+            if (typeof model === 'object' && model.id) {
+                return model.display_name || model.id;
+            }
+            
+            // Handle string format
+            let modelStr = model;
+            if (modelStr.startsWith('/')) {
+                modelStr = modelStr.substring(1);
+            }
+            
+            // Split into provider and model name
+            const parts = modelStr.split('/');
+            if (parts.length < 2) return modelStr;
+            
+            let provider = parts[0];
+            let name = parts[1];
+            
+            // Handle additional tags after the name (like :free)
+            if (name.includes(':')) {
+                const nameParts = name.split(':');
+                name = nameParts[0];
+            }
+            
+            return `${provider} / ${name}`;
+        }
+        
+        // Load leaderboard data
+        async function loadLeaderboard() {
+            try {
+                const response = await fetch('/leaderboard');
+                const data = await response.json();
+                updateLeaderboard(data.leaderboard);
+            } catch (error) {
+                showToast('Error loading leaderboard: ' + error.message);
+            }
+        }
+        
+        // Update leaderboard display - simplified for mobile
+        function updateLeaderboard(leaderboard) {
+            const tbody = document.getElementById('leaderboardBody');
+            tbody.innerHTML = '';
+            
+            if (leaderboard.length === 0) {
+                const row = document.createElement('tr');
+                row.innerHTML = '<td colspan="5" class="text-center">No games yet</td>';
+                tbody.appendChild(row);
+                return;
+            }
+            
+            // Only show top 10 for mobile friendliness
+            const topModels = leaderboard.slice(0, 10);
+            
+            topModels.forEach((entry, index) => {
+                const row = document.createElement('tr');
+                
+                // Add rank class for top 3
+                if (index < 3) {
+                    row.classList.add('font-bold');
+                }
+                
+                // Simplify name display for mobile
+                let displayName = entry.display_name || formatModelName(entry.model);
+                // Shorten if too long
+                if (displayName.length > 20) {
+                    displayName = displayName.substring(0, 18) + '...';
+                }
+                
+                row.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${displayName}</td>
+                    <td>${entry.games}</td>
+                    <td>${entry.wins}</td>
+                    <td>${entry.win_rate}%</td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+        }
+        
+        // Start a new game
+        async function startGame() {
+            if (gameInProgress) {
+                resetGame();
+            }
+            
+            try {
+                const model1 = document.getElementById('model1Select').value;
+                const model2 = document.getElementById('model2Select').value;
+                
+                // Update UI
+                document.getElementById('gameStatus').textContent = 'STARTING...';
+                document.getElementById('gameStatus').className = 'badge badge-sm font-bold bg-yellow-500 text-white';
+                document.getElementById('model1Name').textContent = model1 === 'random' ? 'Random Model' : formatModelName(model1);
+                document.getElementById('model2Name').textContent = model2 === 'random' ? 'Random Model' : formatModelName(model2);
+                document.getElementById('commentary').textContent = 'Setting up the game...';
+                document.getElementById('moveList').textContent = 'No moves yet';
+                
+                // Create game
+                const response = await fetch('/games', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model1, model2 })
+                });
+                
+                const data = await response.json();
+                currentGameId = data.game_id;
+                
+                // Connect to WebSocket
+                connectWebSocket(currentGameId);
+                gameInProgress = true;
+            } catch (error) {
+                showToast('Error starting game: ' + error.message);
+                document.getElementById('gameStatus').textContent = 'Error';
+                document.getElementById('gameStatus').className = 'badge badge-lg badge-error';
+            }
+        }
+        
+        /**
+         * Connect to WebSocket for real-time game updates
+         * 
+         * This function establishes a WebSocket connection to the server to receive
+         * live updates about the game in progress, including moves, commentary, and game state.
+         * 
+         * @param {string} gameId - The ID of the game to connect to
+         */
+        function connectWebSocket(gameId) {
+            // Close any existing connection before creating a new one
+            if (socket) {
+                socket.close();
+            }
+            
+            // Determine the appropriate WebSocket protocol based on page protocol (HTTP/HTTPS)
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/${gameId}`;
+            
+            console.log(`Connecting to WebSocket at ${wsUrl}`);
+            socket = new WebSocket(wsUrl);
+            
+            // Connection established handler
+            socket.onopen = () => {
+                console.log('WebSocket connected successfully');
+            };
+            
+            // Message received handler
+            socket.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                console.log("WebSocket message received:", message);
+                handleWebSocketMessage(message);
+            };
+            
+            // Connection closed handler
+            socket.onclose = () => {
+                console.log('WebSocket connection closed');
+            };
+            
+            // Error handler
+            socket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                showToast('Connection error: ' + error.message);
+            };
+        }
+        
+        /**
+         * Handle messages received through the WebSocket connection
+         * 
+         * This function processes different types of messages from the server:
+         * - game_state: Updates to the overall game state
+         * - move_made: A new move has been made
+         * - status_update: Status messages about the game
+         * - game_over: The game has ended
+         * - error: Error messages
+         * - commentary_update: Commentary from GPT-4.1-mini
+         * 
+         * @param {Object} message - The parsed message received from the server
+         */
+        function handleWebSocketMessage(message) {
+            console.log('Received WebSocket message:', message.type);
+            
+            switch (message.type) {
+                case 'game_state':
+                    // Store the board state in history for replay
+                    if (!isReplaying && message.data.board) {
+                        boardHistory.push(JSON.parse(JSON.stringify(message.data.board)));
+                        currentHistoryIndex = boardHistory.length - 1;
+                        
+                        // Enable replay button if we have moves
+                        if (boardHistory.length > 1) {
+                            document.getElementById('startReplayBtn').disabled = false;
+                        }
+                    }
+                    
+                    // Update the UI with the current game state
+                    updateGameState(message.data);
+                    break;
+                    
+                case 'move_made':
+                    // Handle a move being made by one of the AI models
+                    handleMoveMade(message.data);
+                    break;
+                    
+                case 'status_update':
+                    // Update status messages (e.g., "Waiting for model to move...")
+                    // If we have both status message and commentary, display both
+                    if (message.data.commentary && message.data.commentary !== "Analyzing move...") {
+                        // Show both commentary and status message
+                        const statusHtml = `<div class="commentary-content">${highlightChessAnnotations(message.data.commentary)}</div>
+                                          <div class="status-message text-info mt-2">${message.data.message}</div>`;
+                        document.getElementById('commentary').innerHTML = statusHtml;
+                    } else {
+                        // Just show the status message
+                        document.getElementById('commentary').textContent = message.data.message;
+                    }
+                    break;
+                    
+                case 'game_over':
+                    // Handle game completion
+                    handleGameOver(message.data);
+                    break;
+                    
+                case 'error':
+                    // Display error messages
+                    showToast('Error: ' + message.data.message);
+                    break;
+                    
+                case 'commentary_update':
+                    // Handle asynchronous commentary updates from GPT-4.1-mini
+                    if (message.data && message.data.commentary) {
+                        // If we have both status message and commentary, display both
+                        if (message.data.message) {
+                            // Show both commentary and status message
+                            const statusHtml = `<div class="commentary-content">${highlightChessAnnotations(message.data.commentary)}</div>
+                                              <div class="status-message text-info mt-2">${message.data.message}</div>`;
+                            document.getElementById('commentary').innerHTML = statusHtml;
+                        } else {
+                            // Just show the commentary with highlighting
+                            document.getElementById('commentary').innerHTML = highlightChessAnnotations(message.data.commentary);
+                        }
+                        
+                        // Apply visual effects based on commentary content (like animations for blunders)
+                        applyCommentaryEffects(message.data.commentary);
+                    }
+                    break;
+                    
+                default:
+                    console.warn(`Unknown message type received: ${message.type}`);
+            }
+        }
+        
+        // Update the game state display
+        function updateGameState(data) {
+            // Update player names if they've been selected randomly
+            document.getElementById('model1Name').textContent = formatModelName(data.model1);
+            document.getElementById('model2Name').textContent = formatModelName(data.model2);
+            
+            // Update game status with colors matching player colors (white/black)
+            let statusText = 'In Progress';
+            let statusClass = 'badge badge-sm badge-info';
+            
+            if (data.status === 'finished') {
+                statusText = 'GAME OVER';
+                statusClass = 'badge badge-sm badge-neutral font-bold';
+            } else if (data.current_player === 0) {
+                // White's turn - use white background with dark text
+                statusText = 'WHITE to Move';
+                statusClass = 'badge badge-sm font-bold bg-white text-black border border-gray-300';
+            } else {
+                // Black's turn - use black background with white text
+                statusText = 'BLACK to Move';
+                statusClass = 'badge badge-sm font-bold bg-black text-white';
+            }
+            
+            document.getElementById('gameStatus').textContent = statusText;
+            document.getElementById('gameStatus').className = statusClass;
+            
+            // Update chess board
+            updateChessBoard(data.board);
+            gameBoard = data.board;
+            
+            // Update move list
+            if (data.moves && data.moves.length > 0) {
+                updateMoveList(data.moves);
+            }
+            
+            // Update commentary
+            if (data.commentary && data.commentary.length > 0) {
+                document.getElementById('commentary').innerHTML = data.commentary[data.commentary.length - 1];
+            }
+        }
+        
+        /**
+         * Renders the chessboard based on the provided board data
+         * @param {Array} board - The board data array with piece and color information
+         */
+        function updateChessBoard(board) {
+            // Get the board container element
+            const boardElement = document.getElementById('chessBoard');
+            
+            // Clear previous content
+            boardElement.innerHTML = '';
+            
+            // Validate input data
+            if (!board || !Array.isArray(board) || board.length === 0) {
+                console.warn("Invalid board data received. Using empty board.");
+                board = createEmptyBoard();
+            }
+            
+            // Normalize board data to our expected format
+            const normalizedBoard = normalizeBoard(board);
+            
+            // Create the chess grid container
+            const chessGrid = document.createElement('div');
+            chessGrid.className = 'chess-grid';
+            
+            // Create the board rows with pieces
+            for (let row = 0; row < 8; row++) {
+                const boardRow = document.createElement('div');
+                boardRow.className = 'board-row';
+                
+                // Add cells for this row
+                for (let col = 0; col < 8; col++) {
+                    // Create cell with appropriate coloring
+                    const isLightSquare = (row + col) % 2 === 1;
+                    const cell = document.createElement('div');
+                    cell.className = `board-cell ${isLightSquare ? 'light-square' : 'dark-square'}`;
+                    
+                    // Get piece info from the normalized board
+                    const pieceInfo = normalizedBoard[row][col];
+                    const symbol = pieceInfo.symbol || '';
+                    const pieceColor = pieceInfo.color || '';
+                    
+                    // Add piece to cell if it exists
+                    if (symbol) {
+                        // Add piece color class
+                        if (pieceColor === 'w') {
+                            cell.classList.add('piece-white');
+                        } else if (pieceColor === 'b') {
+                            cell.classList.add('piece-black');
+                        }
+                        cell.textContent = symbol;
+                    }
+                    
+                    boardRow.appendChild(cell);
+                }
+                
+                chessGrid.appendChild(boardRow);
+            }
+            
+            // Add the completed chess grid to the board element
+            boardElement.appendChild(chessGrid);
+        }
+        
+        /**
+         * Normalizes different board data formats to our standard format
+         * @param {Array} board - The board data to normalize
+         * @returns {Array} - Normalized 8x8 board with object format {symbol, color}
+         */
+        function normalizeBoard(board) {
+            // Create an empty board as fallback
+            const normalizedBoard = createEmptyBoard();
+            
+            try {
+                // Check if we have valid board data
+                if (board.length < 8) {
+                    console.warn("Board data has fewer than 8 rows, using partial data.");
+                    return normalizedBoard;
+                }
+                
+                // Special case: Handle the specific format where each row has empty strings between pieces
+                // This format looks like: ["♜", "", "♞", "", "♝", "", ...] with alternating pieces and empty strings
+                const hasAlternatingFormat = board[0] && Array.isArray(board[0]) && board[0].length > 8 && 
+                                           board[0].filter((item, index) => index % 2 === 1)
+                                                  .every(item => item === "" || item === " ");
+                
+                if (hasAlternatingFormat) {
+                    console.log("Detected alternating piece/empty format, handling specially");
+                    // Process rows with alternating pieces and empty spaces
+                    for (let row = 0; row < 8; row++) {
+                        if (row < board.length) {
+                            for (let col = 0; col < 8; col++) {
+                                // Pieces are at even indices (0, 2, 4, 6, etc.)
+                                const pieceIndex = col * 2;
+                                if (pieceIndex < board[row].length) {
+                                    const piece = board[row][pieceIndex];
+                                    if (piece && typeof piece === 'string' && piece.trim() !== '') {
+                                        normalizedBoard[row][col] = {
+                                            symbol: piece,
+                                            // For Unicode chess symbols:
+                                            // - Looking at actual data in the board: row 0-1 = black, row 6-7 = white
+                                            color: (row <= 1) ? 'b' : (row >= 6) ? 'w' : 
+                                                   // Fallback for pieces in the middle 
+                                                   // (detection based on shape, not reliable but better than nothing)
+                                                   (piece === '♟' && row < 4) ? 'b' : 
+                                                   (piece === '♟' && row >= 4) ? 'w' : ''
+                                        };
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return normalizedBoard;
+                }
+                
+                // Determine if we have the expected object format {symbol, color}
+                const hasExpectedFormat = board[0] && board[0][0] && 
+                                         typeof board[0][0] === 'object' && 
+                                         board[0][0].hasOwnProperty('symbol');
+                
+                if (hasExpectedFormat) {
+                    // Copy data to our normalized structure
+                    for (let row = 0; row < 8; row++) {
+                        for (let col = 0; col < 8; col++) {
+                            if (row < board.length && col < board[row].length) {
+                                const pieceData = board[row][col];
+                                if (pieceData && pieceData.symbol) {
+                                    normalizedBoard[row][col] = {
+                                        symbol: pieceData.symbol,
+                                        color: pieceData.color || ''
+                                    };
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Handle legacy format (array of strings or other formats)
+                    for (let row = 0; row < 8; row++) {
+                        for (let col = 0; col < 8; col++) {
+                            if (row < board.length && col < board[row].length) {
+                                const pieceData = board[row][col];
+                                
+                                // Handle different possible data types
+                                if (typeof pieceData === 'string' && pieceData.trim() !== '') {
+                                    // If it's a non-empty string, assume it's a Unicode piece
+                                    normalizedBoard[row][col] = {
+                                        symbol: pieceData,
+                                        // Basic inference based on position (rows 0-1 are black, rows 6-7 are white)
+                                        color: (row <= 1) ? 'b' : (row >= 6) ? 'w' : 
+                                              // Fallback for middle pieces (less reliable)
+                                              (pieceData === pieceData.toUpperCase()) ? 'w' : 'b'
+                                    };
+                                } else if (typeof pieceData === 'object' && pieceData !== null) {
+                                    // Copy object properties
+                                    normalizedBoard[row][col] = {
+                                        symbol: pieceData.symbol || '',
+                                        color: pieceData.color || ''
+                                    };
+                                }
+                                // All other cases leave the cell empty
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error("Error normalizing board data:", error);
+            }
+            
+            return normalizedBoard;
+        }
+        
+        
+        
+        // Handle a move being made
+        function handleMoveMade(data) {
+            // Update move list if needed, showing interpretation info if available
+            updateMoveList([data.move], [data.raw_move], [data.interpreted]);
+            
+            // Store the last move for highlighting on the board
+            // Convert SAN format to UCI format if needed
+            if (data.move && data.move.length >= 2) {
+                // Store the move data for highlighting the cells
+                lastMove = data.move;
+                console.log("Last move set to: " + lastMove);
+            }
+            
+            // Add visual highlight to commentary (might be placeholder if commentary is still loading)
+            const highlightedCommentary = highlightChessAnnotations(data.commentary);
+            document.getElementById('commentary').innerHTML = highlightedCommentary;
+            
+            // Apply any visual effects
+            applyCommentaryEffects(data.commentary);
+            
+            // Show toast if move was interpreted
+            if (data.interpreted) {
+                showToast(`Move interpreted: "${data.raw_move}" → "${data.move}"`, 'info', 4000);
+            }
+        }
+        
+        // Apply simpler visual effects based on commentary text
+        function applyCommentaryEffects(commentary) {
+            if (!commentary) return;
+            
+            const commentaryElement = document.getElementById('commentary');
+            
+            // Reset previous effects
+            commentaryElement.classList.remove('blunder-effect', 'brilliant-effect');
+            
+            if (commentary.includes('??') || commentary.includes('blunder')) {
+                // Blunder effect - add red text
+                commentaryElement.classList.add('blunder-effect');
+            } else if (commentary.includes('!!') || commentary.includes('brilliant')) {
+                // Brilliant move effect - add gold text
+                commentaryElement.classList.add('brilliant-effect');
+                
+                // Simplified confetti effect for brilliant moves
+                confetti({
+                    particleCount: 50,
+                    spread: 45,
+                    origin: { y: 0.6 }
+                });
+            } else if (commentary.includes('checkmate') || commentary.includes('#')) {
+                // Simple checkmate effect
+                confetti({
+                    particleCount: 100,
+                    spread: 60,
+                    origin: { y: 0.6 }
+                });
+            }
+        }
+        
+        // Handle game over event
+        function handleGameOver(data) {
+            gameInProgress = false;
+            
+            let winner = '';
+            let result = '';
+            let friendlyExplanation = data.friendly_reason || '';
+            
+            if (data.result.result === 'win') {
+                winner = formatModelName(data.result.winner_model);
+                result = `<strong>${winner}</strong> won the game!`;
+                
+                // Celebration confetti for the winner
+                confetti({
+                    particleCount: 200,
+                    spread: 90,
+                    origin: { y: 0.6 }
+                });
+            } else if (data.result.result === 'draw') {
+                result = `Game ended in a draw.`;
+            } else {
+                result = `Game ended unexpectedly.`;
+            }
+            
+            // If we have a friendly explanation, use it; otherwise, use a technical reason
+            let explanation = friendlyExplanation || `Technical reason: ${data.result.reason || 'unknown'}`;
+            
+            // Create a more informative and user-friendly message
+            let message = `${result}<br><br>${explanation}`;
+            
+            // Update UI
+            document.getElementById('gameStatus').textContent = 'GAME OVER';
+            document.getElementById('gameStatus').className = 'badge badge-sm badge-neutral font-bold';
+            
+            // Show game over modal with formatted message
+            document.getElementById('gameOverMessage').innerHTML = message;
+            document.getElementById('gameOverModal').showModal();
+            
+            // Show replay button now that the game is over
+            if (boardHistory.length > 1) {
+                document.getElementById('startReplayBtn').style.display = 'block';
+            }
+            
+            // Reload leaderboard
+            loadLeaderboard();
+        }
+        
+        // Update the move list display
+        function updateMoveList(moves, rawMoves, interpreted) {
+            const moveList = document.getElementById('moveList');
+            
+            if (!moves || moves.length === 0) {
+                moveList.textContent = 'No moves yet';
+                return;
+            }
+            
+            // If this is the first move, clear the "No moves yet" text
+            if (moveList.textContent === 'No moves yet') {
+                moveList.innerHTML = '';
+            }
+            
+            // Ensure parameters are arrays even if a single move is passed
+            const moveArray = Array.isArray(moves) ? moves : [moves];
+            let rawArray = Array.isArray(rawMoves) ? rawMoves : (rawMoves ? [rawMoves] : null); 
+            let interpretedArray = Array.isArray(interpreted) ? interpreted : (interpreted ? [interpreted] : null);
+            
+            // Add each new move to the list
+            moveArray.forEach((move, i) => {
+                const moveNumber = Math.floor((document.querySelectorAll('.move-entry').length + i) / 2) + 1;
+                const isWhiteMove = (document.querySelectorAll('.move-entry').length + i) % 2 === 0;
+                
+                // Format the move display with raw version if interpreted
+                let moveDisplay = move;
+                if (rawArray && rawArray[i] && interpretedArray && interpretedArray[i]) {
+                    moveDisplay = `${move} <span class="text-xs text-gray-500" title="Original input: ${rawArray[i]}">(interpreted)</span>`;
+                }
+                
+                const moveEntry = document.createElement('div');
+                moveEntry.classList.add('move-entry');
+                
+                if (isWhiteMove) {
+                    moveEntry.innerHTML = `<strong>${moveNumber}.</strong> ${moveDisplay}`;
+                } else {
+                    // For black's move, append to the previous entry if it exists
+                    const lastEntry = moveList.lastElementChild;
+                    if (lastEntry && lastEntry.classList.contains('move-entry')) {
+                        lastEntry.innerHTML += ` ${moveDisplay}`;
+                        return;
+                    } else {
+                        moveEntry.innerHTML = `<strong>${moveNumber}...</strong> ${moveDisplay}`;
+                    }
+                }
+                
+                moveList.appendChild(moveEntry);
+            });
+            
+            // Scroll to bottom
+            moveList.scrollTop = moveList.scrollHeight;
+        }
+        
+        // Reset the game
+        function resetGame() {
+            if (socket) {
+                socket.close();
+            }
+            
+            gameInProgress = false;
+            currentGameId = null;
+            lastMove = null;
+            
+            // Clear replay history
+            clearReplayHistory();
+            
+            // Close modal if it's open
+            try {
+                document.getElementById('gameOverModal').close();
+            } catch (e) {
+                console.log("Modal was not open");
+            }
+            
+            // Reset UI
+            initChessBoard();
+            document.getElementById('gameStatus').textContent = 'WAITING';
+            document.getElementById('gameStatus').className = 'badge badge-sm font-bold bg-gray-200 text-gray-700';
+            document.getElementById('model1Name').textContent = '-';
+            document.getElementById('model2Name').textContent = '-';
+            document.getElementById('commentary').textContent = 'Waiting for game to start...';
+            document.getElementById('moveList').textContent = 'No moves yet';
+            
+            // Hide replay button
+            document.getElementById('startReplayBtn').style.display = 'none';
+            
+            // Show toast to indicate a new game is starting
+            showToast('Starting a new game...', 'success');
+            
+            // Start a new game (with a slight delay to ensure UI updates first)
+            setTimeout(() => {
+                startGame();
+            }, 100);
+        }
+        
+        // Replay functionality
+        function startReplay() {
+            if (boardHistory.length <= 1) {
+                showToast('Not enough moves to replay', 'warning');
+                return;
+            }
+            
+            isReplaying = true;
+            
+            // Show replay controls
+            document.getElementById('replayControls').style.display = 'flex';
+            document.getElementById('startReplayBtn').disabled = true;
+            
+            // Start at the beginning
+            replayMove(0);
+            
+            showToast('Replay mode started', 'info');
+        }
+        
+        function replayMove(index) {
+            // Validate index bounds
+            if (index < 0) index = 0;
+            if (index >= boardHistory.length) index = boardHistory.length - 1;
+            
+            // Update the current index
+            currentHistoryIndex = index;
+            
+            // Update counter display
+            document.getElementById('replayCounter').textContent = `${currentHistoryIndex + 1}/${boardHistory.length}`;
+            
+            // Display the board state at this index
+            const boardState = boardHistory[currentHistoryIndex];
+            updateChessBoard(boardState);
+            
+            // Disable/enable navigation buttons based on position
+            document.getElementById('replayFirst').disabled = (currentHistoryIndex === 0);
+            document.getElementById('replayPrev').disabled = (currentHistoryIndex === 0);
+            document.getElementById('replayNext').disabled = (currentHistoryIndex === boardHistory.length - 1);
+            document.getElementById('replayLast').disabled = (currentHistoryIndex === boardHistory.length - 1);
+        }
+        
+        function exitReplay() {
+            isReplaying = false;
+            
+            // Hide replay controls
+            document.getElementById('replayControls').style.display = 'none';
+            document.getElementById('startReplayBtn').disabled = false;
+            
+            // Return to the latest board state
+            currentHistoryIndex = boardHistory.length - 1;
+            updateChessBoard(boardHistory[currentHistoryIndex]);
+            
+            showToast('Exited replay mode', 'info');
+        }
+        
+        // Clear replay history when a new game starts
+        function clearReplayHistory() {
+            boardHistory = [];
+            currentHistoryIndex = -1;
+            isReplaying = false;
+            document.getElementById('replayControls').style.display = 'none';
+            document.getElementById('startReplayBtn').disabled = true;
+        }
+        
+        // Show a toast message
+        function showToast(message, type = 'info', duration = 3000) {
+            const toast = document.getElementById('toast');
+            const toastMessage = document.getElementById('toastMessage');
+            
+            // Set the message
+            toastMessage.textContent = message;
+            
+            // Set the alert type
+            const alertElement = toast.querySelector('.alert');
+            alertElement.className = 'alert'; // Reset class
+            
+            switch (type) {
+                case 'success':
+                    alertElement.classList.add('alert-success');
+                    break;
+                case 'warning':
+                    alertElement.classList.add('alert-warning');
+                    break;
+                case 'error':
+                    alertElement.classList.add('alert-error');
+                    break;
+                case 'info':
+                default:
+                    alertElement.classList.add('alert-info');
+                    break;
+            }
+            
+            // Show the toast
+            toast.classList.remove('hidden');
+            
+            // Hide after duration
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, duration);
+        }
+        
+        // Highlight chess annotation symbols in commentary
+        function highlightChessAnnotations(text) {
+            const annotations = {
+                '!!': '<span class="text-success font-bold">!!</span>',  // Brilliant move
+                '!': '<span class="text-success">!</span>',              // Good move
+                '?!': '<span class="text-warning">?!</span>',           // Questionable move
+                '?': '<span class="text-warning">?</span>',             // Mistake
+                '??': '<span class="text-error font-bold">??</span>',    // Blunder
+                '!?': '<span class="text-info">!?</span>',              // Interesting move
+                '□': '<span class="text-info">□</span>',                // With the idea
+                '⊕': '<span class="text-info">⊕</span>',                // With an attack
+                '∞': '<span class="text-info">∞</span>',                // Unclear position
+                '=': '<span class="text-info">=</span>',                // Equal position
+                '±': '<span class="text-success">±</span>',             // White has a slight advantage
+                '∓': '<span class="text-success">∓</span>',             // Black has a slight advantage
+                '+−': '<span class="text-success">+−</span>',           // White has a decisive advantage
+                '−+': '<span class="text-success">−+</span>',           // Black has a decisive advantage
+                '+': '<span class="text-warning">+</span>',             // Check
+                '#': '<span class="text-error font-bold">#</span>'      // Checkmate
+            };
+            
+            let result = text;
+            
+            // Replace annotation symbols with highlighted versions
+            for (const [symbol, highlight] of Object.entries(annotations)) {
+                result = result.replace(new RegExp(symbol.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g'), highlight);
+            }
+            
+            return result;
+        }
+    </script>
+</body>
+</html>
