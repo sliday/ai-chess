@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Chess Arena</title>
+    <title>AI Chess Arena: Real-time battles between AI models</title>
     <!-- DaisyUI for UI components on top of TailwindCSS -->
     <link href="https://cdn.jsdelivr.net/npm/daisyui@3.7.3/dist/full.css" rel="stylesheet" type="text/css" />
     <!-- TailwindCSS for utility-first styling -->
@@ -75,7 +75,7 @@
     <!-- Simple header -->
     <div class="navbar bg-base-200">
         <div class="flex-1">
-            <span class="font-bold text-xl px-2">AI Chess Arena</span>
+            <span class="font-bold text-xl px-2">AI Chess Arena<span class="hidden sm:inline text-sm font-normal text-gray-500">: Real-time battles between AI models</span></span>
         </div>
         <div class="flex-none">
             <button id="newGameBtn" class="btn btn-sm btn-primary">New Game</button>
@@ -86,19 +86,15 @@
         <!-- Main content -->
         <div class="grid grid-cols-1 gap-4">
             <!-- Players -->
-            <div class="card bg-base-100 shadow-sm p-2">
+            <div class="card bg-base-100 shadow-sm">
                 <div class="stats shadow text-sm">
-                    <div class="stat p-2">
-                        <div class="stat-title">White</div>
+                    <div class="stat">
+                        <div class="stat-title">⚪ White</div>
                         <div id="model1Name" class="font-medium truncate text-sm">-</div>
                     </div>
-                    <div class="stat p-2">
-                        <div class="stat-title">Black</div>
+                    <div class="stat">
+                        <div class="stat-title">⚫ Black</div>
                         <div id="model2Name" class="font-medium truncate text-sm">-</div>
-                    </div>
-                    <div class="stat p-2">
-                        <div class="stat-title">Status</div>
-                        <div id="gameStatus" class="badge badge-sm font-bold bg-gray-200 text-gray-700">WAITING</div>
                     </div>
                 </div>
             </div>
@@ -126,15 +122,18 @@
                 <div class="grid grid-cols-1 gap-4 h-full">
                     <!-- Commentary -->
                     <div class="card bg-base-200 shadow-sm">
-                        <div class="p-2">
-                            <h3 class="text-sm font-bold">Commentary</h3>
+                        <div class="card-body">
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-sm font-bold">Commentary</h3>
+                                <div id="gameStatus" class="badge badge-sm font-bold bg-gray-200 text-gray-700">WAITING</div>
+                            </div>
                             <div id="commentary" class="commentary text-xs mt-1">Waiting for game to start...</div>
                         </div>
                     </div>
                     
                     <!-- Moves -->
                     <div class="card bg-base-200 shadow-sm flex-1">
-                        <div class="p-2 move-history-container">
+                        <div class="card-body move-history-container">
                             <div class="flex justify-between items-center">
                                 <h3 class="text-sm font-bold">Move History</h3>
                                 <button id="startReplayBtn" class="btn btn-xs btn-outline" title="Replay game" style="display: none;">▶️ Replay</button>
@@ -147,7 +146,7 @@
 
             <!-- Leaderboard (simplified) -->
             <div class="card bg-base-100 shadow-sm mt-2">
-                <div class="p-2">
+                <div class="card-body">
                     <h2 class="text-md font-bold mb-1">Leaderboard</h2>
                     <div class="overflow-x-auto">
                         <table class="table table-compact table-zebra w-full">
@@ -430,6 +429,42 @@
             return `${provider} / ${name}`;
         }
         
+        // Format model name for player titles (drops mistralai prefix)
+        function formatPlayerName(model) {
+            if (!model) return "Unknown Model";
+            
+            // Check if model is an object (from old format) or string (new format)
+            if (typeof model === 'object' && model.id) {
+                model = model.display_name || model.id;
+            }
+            
+            // Handle string format
+            let modelStr = model;
+            if (modelStr.startsWith('/')) {
+                modelStr = modelStr.substring(1);
+            }
+            
+            // Split into provider and model name
+            const parts = modelStr.split('/');
+            if (parts.length < 2) return modelStr;
+            
+            let provider = parts[0];
+            let name = parts[1];
+            
+            // Handle additional tags after the name (like :free)
+            if (name.includes(':')) {
+                const nameParts = name.split(':');
+                name = nameParts[0];
+            }
+            
+            // Drop mistralai prefix for player titles
+            if (provider.toLowerCase() === 'mistralai') {
+                return name;
+            }
+            
+            return `${provider} / ${name}`;
+        }
+        
         // Load leaderboard data
         async function loadLeaderboard() {
             try {
@@ -453,10 +488,8 @@
                 return;
             }
             
-            // Only show top 10 for mobile friendliness
-            const topModels = leaderboard.slice(0, 10);
-            
-            topModels.forEach((entry, index) => {
+            // Show full leaderboard
+            leaderboard.forEach((entry, index) => {
                 const row = document.createElement('tr');
                 
                 // Add rank class for top 3
@@ -464,11 +497,11 @@
                     row.classList.add('font-bold');
                 }
                 
-                // Simplify name display for mobile
+                // Allow longer model names in leaderboard
                 let displayName = entry.display_name || formatModelName(entry.model);
-                // Shorten if too long
-                if (displayName.length > 20) {
-                    displayName = displayName.substring(0, 18) + '...';
+                // Shorten if too long (3x longer than before)
+                if (displayName.length > 60) {
+                    displayName = displayName.substring(0, 58) + '...';
                 }
                 
                 row.innerHTML = `
@@ -496,8 +529,8 @@
                 // Update UI
                 document.getElementById('gameStatus').textContent = 'STARTING...';
                 document.getElementById('gameStatus').className = 'badge badge-sm font-bold bg-yellow-500 text-white';
-                document.getElementById('model1Name').textContent = model1 === 'random' ? 'Random Model' : formatModelName(model1);
-                document.getElementById('model2Name').textContent = model2 === 'random' ? 'Random Model' : formatModelName(model2);
+                document.getElementById('model1Name').textContent = model1 === 'random' ? 'Random Model' : formatPlayerName(model1);
+                document.getElementById('model2Name').textContent = model2 === 'random' ? 'Random Model' : formatPlayerName(model2);
                 document.getElementById('commentary').textContent = 'Setting up the game...';
                 document.getElementById('moveList').textContent = 'No moves yet';
                 
@@ -655,8 +688,8 @@
         // Update the game state display
         function updateGameState(data) {
             // Update player names if they've been selected randomly
-            document.getElementById('model1Name').textContent = formatModelName(data.model1);
-            document.getElementById('model2Name').textContent = formatModelName(data.model2);
+            document.getElementById('model1Name').textContent = formatPlayerName(data.model1);
+            document.getElementById('model2Name').textContent = formatPlayerName(data.model2);
             
             // Update game status with colors matching player colors (white/black)
             let statusText = 'In Progress';
@@ -680,7 +713,6 @@
             
             // Update chess board
             updateChessBoard(data.board);
-            gameBoard = data.board;
             
             // Update move list (replace all moves with full game state)
             if (data.moves && data.moves.length > 0) {
@@ -699,6 +731,13 @@
         function updateChessBoard(board) {
             if (!board || !Array.isArray(board) || board.length === 0) {
                 board = createEmptyBoard();
+            }
+            
+            // Don't update board during animation
+            if (animatingPiece) {
+                window.pendingBoardUpdate = board;
+                log('Board update delayed - animation in progress');
+                return;
             }
             
             gameBoard = normalizeBoard(board);
@@ -844,8 +883,8 @@
                 lastMove = data.move;
                 log("Last move set to: " + lastMove);
                 
-                // Trigger p5.js animation
-                triggerMoveAnimation();
+                // Trigger p5.js animation BEFORE the board gets updated
+                triggerMoveAnimationWithMove(data.move);
             }
             
             // Add visual highlight to commentary
@@ -890,7 +929,7 @@
             let friendlyExplanation = data.friendly_reason || '';
             
             if (data.result.result === 'win') {
-                winner = formatModelName(data.result.winner_model);
+                winner = formatPlayerName(data.result.winner_model);
                 result = `<strong>${winner}</strong> won the game!`;
             } else if (data.result.result === 'draw') {
                 result = `Game ended in a draw.`;
@@ -1167,7 +1206,8 @@
             
             // Set up animation
             animatingPiece = {
-                symbol: piece,
+                symbol: piece.symbol,
+                color: piece.color,
                 fromX: fromCoords.col * squareSize + squareSize/2,
                 fromY: fromCoords.row * squareSize + squareSize/2,
                 toX: toCoords.col * squareSize + squareSize/2,
@@ -1175,7 +1215,9 @@
                 currentX: fromCoords.col * squareSize + squareSize/2,
                 currentY: fromCoords.row * squareSize + squareSize/2,
                 progress: 0,
-                duration: 30 // frames
+                duration: 45, // frames (smoother animation)
+                fromSquare: fromSquare,
+                toSquare: toSquare
             };
             
             // Clear the piece from the from square during animation
@@ -1191,9 +1233,9 @@
             // Update animation progress
             animatingPiece.progress += 1;
             
-            // Calculate current position using easing
+            // Calculate current position using easeIn animation
             const t = animatingPiece.progress / animatingPiece.duration;
-            const easedT = easeOutCubic(t);
+            const easedT = easeInOutCubic(t);
             
             animatingPiece.currentX = lerp(animatingPiece.fromX, animatingPiece.toX, easedT);
             animatingPiece.currentY = lerp(animatingPiece.fromY, animatingPiece.toY, easedT);
@@ -1216,20 +1258,36 @@
             
             // End animation
             if (animatingPiece.progress >= animatingPiece.duration) {
-                const toCoords = algebraicToCoords(lastMove.substring(2, 4));
+                const toCoords = algebraicToCoords(animatingPiece.toSquare);
                 gameBoard[toCoords.row][toCoords.col] = {
                     symbol: animatingPiece.symbol,
                     color: animatingPiece.color
                 };
                 animatingPiece = null;
+                log("Animation completed");
+                
+                // Update board with any pending changes after animation
+                if (window.pendingBoardUpdate) {
+                    gameBoard = normalizeBoard(window.pendingBoardUpdate);
+                    window.pendingBoardUpdate = null;
+                    log('Applied pending board update after animation');
+                }
             }
         }
         
         /**
-         * Easing function for smooth animation
+         * Easing functions for smooth animation
          */
         function easeOutCubic(t) {
             return 1 - Math.pow(1 - t, 3);
+        }
+        
+        function easeInCubic(t) {
+            return t * t * t;
+        }
+        
+        function easeInOutCubic(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
         }
         
         /**
@@ -1254,6 +1312,26 @@
             const piece = gameBoard[fromCoords.row][fromCoords.col];
             if (piece && piece.symbol) {
                 animateMove(fromSquare, toSquare, piece);
+            }
+        }
+        
+        /**
+         * Trigger move animation with move data before board update
+         */
+        function triggerMoveAnimationWithMove(move) {
+            if (!move || move.length < 4) return;
+            
+            const fromSquare = move.substring(0, 2);
+            const toSquare = move.substring(2, 4);
+            const fromCoords = algebraicToCoords(fromSquare);
+            
+            // Get the piece from current board before it gets updated
+            const piece = gameBoard[fromCoords.row] && gameBoard[fromCoords.row][fromCoords.col];
+            if (piece && piece.symbol) {
+                log("Starting animation for piece: " + piece.symbol + " from " + fromSquare + " to " + toSquare);
+                animateMove(fromSquare, toSquare, piece);
+            } else {
+                log("No piece found at " + fromSquare + " to animate");
             }
         }
     </script>

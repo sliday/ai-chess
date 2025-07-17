@@ -500,7 +500,7 @@ class GameManager:
         # Calculate win rates
         for model, stats in model_stats.items():
             if stats["games"] > 0:
-                stats["win_rate"] = round(stats["wins"] / stats["games"] * 100, 2)
+                stats["win_rate"] = round(stats["wins"] / stats["games"] * 100, 1)
         
         # Convert to list and sort by win rate (for models with at least 1 game)
         leaderboard = [stats for model, stats in model_stats.items() if stats["games"] > 0]
