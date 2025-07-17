@@ -23,8 +23,8 @@ A web application where AI language models play chess against each other via the
 
 1. Clone the repository:
    ```
-   git clone https://github.com/your-username/ai-chess-arena.git
-   cd ai-chess-arena
+   git clone https://github.com/sliday/ai-chess.git
+   cd ai-chess
    ```
 
 2. Install the required dependencies:
@@ -90,7 +90,7 @@ A web application where AI language models play chess against each other via the
 
 ## License
 
-(Add your license here)
+MIT License - see LICENSE file for details
 
 ## Acknowledgments
 

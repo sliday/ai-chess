@@ -8,69 +8,40 @@
     <link href="https://cdn.jsdelivr.net/npm/daisyui@3.7.3/dist/full.css" rel="stylesheet" type="text/css" />
     <!-- TailwindCSS for utility-first styling -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Confetti library -->
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <!-- p5.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.7.0/lib/p5.min.js"></script>
     <style>
-        /* Chess board styling */
-        .chess-board {
-            background-color: #2d2d2d;
-            padding: 0.75rem;
-            border-radius: 0.5rem;
-            max-width: 100%;
-            margin: 0 auto;
-            overflow-x: auto;
-        }
-        
-        .chess-grid {
-            display: inline-block;
-            border: 2px solid #333;
-            font-family: monospace;
-            font-size: 1.5rem;
-            font-weight: bold;
-            user-select: none;
-            box-shadow: 0 3px 6px rgba(0,0,0,0.3);
-        }
-        
-        /* Board row styling */
-        .board-row {
+        /* p5.js Chess Board Styling */
+        .chess-board-container {
             display: flex;
-            height: 2em;
-        }
-        
-        /* Board cell styling */
-        .board-cell {
-            width: 2em;
-            height: 2em;
-            display: flex;
-            align-items: center;
             justify-content: center;
+            padding: 16px;
+            background: #2d2d2d;
+            border-radius: 8px;
+            margin: 0 auto;
         }
         
-        /* Light and dark squares */
-        .light-square {
-            background-color: #f0d9b5;
-        }
-        
-        .dark-square {
-            background-color: #b58863;
-        }
-        
-        /* Chess piece colors */
-        .piece-white {
-            color: #ffffff;
-            text-shadow: 0px 0px 2px #000;
-        }
-        
-        .piece-black {
-            color: #000000;
-            text-shadow: 0px 0px 1px #fff;
+        #chessBoard {
+            border: 2px solid #333;
+            border-radius: 4px;
         }
         
         /* Move list & commentary */
         .move-list, .commentary {
             font-family: monospace;
             white-space: pre-wrap;
-            max-height: 150px;
+            overflow-y: auto;
+        }
+        
+        /* Make move history take full height */
+        .move-history-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        
+        .move-history-content {
+            flex: 1;
             overflow-y: auto;
         }
         
@@ -97,20 +68,7 @@
             margin-bottom: 0.5em;
         }
         
-        /* Mobile optimizations */
-        @media (max-width: 640px) {
-            .chess-ascii-art {
-                font-size: 1.2rem; /* Still bigger than original on mobile */
-            }
-            
-            .chess-board {
-                padding: 0.5rem;
-            }
-            
-            .move-list, .commentary {
-                max-height: 120px;
-            }
-        }
+        /* Keep fixed size - no mobile optimizations needed */
     </style>
 </head>
 <body class="min-h-screen bg-base-300">
@@ -149,8 +107,8 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <!-- Chess board section -->
                 <div>
-                    <div class="chess-board" id="chessBoard">
-                        <!-- Chess board will be rendered here -->
+                    <div class="chess-board-container">
+                        <div id="chessBoard"></div>
                     </div>
                     
                     <!-- Replay controls -->
@@ -165,7 +123,7 @@
                 </div>
                 
                 <!-- Info section -->
-                <div class="grid grid-cols-1 gap-4">
+                <div class="grid grid-cols-1 gap-4 h-full">
                     <!-- Commentary -->
                     <div class="card bg-base-200 shadow-sm">
                         <div class="p-2">
@@ -175,13 +133,13 @@
                     </div>
                     
                     <!-- Moves -->
-                    <div class="card bg-base-200 shadow-sm">
-                        <div class="p-2">
+                    <div class="card bg-base-200 shadow-sm flex-1">
+                        <div class="p-2 move-history-container">
                             <div class="flex justify-between items-center">
                                 <h3 class="text-sm font-bold">Move History</h3>
                                 <button id="startReplayBtn" class="btn btn-xs btn-outline" title="Replay game" style="display: none;">▶️ Replay</button>
                             </div>
-                            <div id="moveList" class="move-list text-xs mt-1">No moves yet</div>
+                            <div id="moveList" class="move-list text-xs mt-1 move-history-content">No moves yet</div>
                         </div>
                     </div>
                 </div>
@@ -262,12 +220,27 @@
         let boardHistory = [];          // History of all board states for replay
         let currentHistoryIndex = -1;   // Current position in history replay
         let isReplaying = false;        // Whether we're in replay mode
+        
+        // p5.js variables
+        let chessCanvas;
+        let boardSize = 400;
+        let squareSize = 50;
+        let animatingPiece = null;
+        let lightColor, darkColor;
+        let pieces = {};
 
         /**
          * Initialize the application when the page loads
          */
+        // Simple logging function for frontend
+        function log(message, level = 'info') {
+            const timestamp = new Date().toISOString();
+            const logMessage = `[${timestamp}] ${level.toUpperCase()}: ${message}`;
+            console.log(logMessage);
+        }
+
         document.addEventListener('DOMContentLoaded', async () => {
-            console.log("AI Chess Arena initializing...");
+            log("AI Chess Arena initializing...");
             
             // Initialize the chessboard display
             initChessBoard();
@@ -305,7 +278,7 @@
             
             // Always start a new game automatically when the page loads
             startGame();
-            console.log("Initialization complete, auto-starting new game");
+            log("Initialization complete, auto-starting new game");
         });
         
         /**
@@ -314,45 +287,51 @@
          * Ensures the board is drawn when the page loads.
          */
         /**
-         * Initialize the chess board with the standard starting position
+         * Initialize the chess board with p5.js
          */
         function initChessBoard() {
-            // Initial chess position for a standard game
-            const initialPosition = createEmptyBoard();
+            // Create empty board state
+            gameBoard = createEmptyBoard();
             
-            // Set up black pieces (back row)
-            initialPosition[0][0] = {"symbol": "♜", "color": "b"}; // Rook
-            initialPosition[0][1] = {"symbol": "♞", "color": "b"}; // Knight
-            initialPosition[0][2] = {"symbol": "♝", "color": "b"}; // Bishop
-            initialPosition[0][3] = {"symbol": "♛", "color": "b"}; // Queen
-            initialPosition[0][4] = {"symbol": "♚", "color": "b"}; // King
-            initialPosition[0][5] = {"symbol": "♝", "color": "b"}; // Bishop
-            initialPosition[0][6] = {"symbol": "♞", "color": "b"}; // Knight
-            initialPosition[0][7] = {"symbol": "♜", "color": "b"}; // Rook
-            
-            // Set up black pawns
-            for (let col = 0; col < 8; col++) {
-                initialPosition[1][col] = {"symbol": "♟", "color": "b"};
-            }
-            
-            // Set up white pawns
-            for (let col = 0; col < 8; col++) {
-                initialPosition[6][col] = {"symbol": "♟", "color": "w"};
-            }
-            
-            // Set up white pieces (back row)
-            initialPosition[7][0] = {"symbol": "♜", "color": "w"}; // Rook
-            initialPosition[7][1] = {"symbol": "♞", "color": "w"}; // Knight
-            initialPosition[7][2] = {"symbol": "♝", "color": "w"}; // Bishop
-            initialPosition[7][3] = {"symbol": "♛", "color": "w"}; // Queen
-            initialPosition[7][4] = {"symbol": "♚", "color": "w"}; // King
-            initialPosition[7][5] = {"symbol": "♝", "color": "w"}; // Bishop
-            initialPosition[7][6] = {"symbol": "♞", "color": "w"}; // Knight
-            initialPosition[7][7] = {"symbol": "♜", "color": "w"}; // Rook
-
-            // Render the initial board
+            // Set up initial position
+            const initialPosition = createStandardPosition();
             updateChessBoard(initialPosition);
-            console.log("Chessboard initialized with standard starting position");
+            log("p5.js Chessboard initialized");
+        }
+        
+        /**
+         * Create standard chess starting position
+         */
+        function createStandardPosition() {
+            const board = createEmptyBoard();
+            
+            // Black pieces
+            board[0] = [
+                {"symbol": "♜", "color": "b"}, {"symbol": "♞", "color": "b"}, 
+                {"symbol": "♝", "color": "b"}, {"symbol": "♛", "color": "b"}, 
+                {"symbol": "♚", "color": "b"}, {"symbol": "♝", "color": "b"}, 
+                {"symbol": "♞", "color": "b"}, {"symbol": "♜", "color": "b"}
+            ];
+            
+            // Black pawns
+            for (let col = 0; col < 8; col++) {
+                board[1][col] = {"symbol": "♟", "color": "b"};
+            }
+            
+            // White pawns
+            for (let col = 0; col < 8; col++) {
+                board[6][col] = {"symbol": "♟", "color": "w"};
+            }
+            
+            // White pieces
+            board[7] = [
+                {"symbol": "♜", "color": "w"}, {"symbol": "♞", "color": "w"}, 
+                {"symbol": "♝", "color": "w"}, {"symbol": "♛", "color": "w"}, 
+                {"symbol": "♚", "color": "w"}, {"symbol": "♝", "color": "w"}, 
+                {"symbol": "♞", "color": "w"}, {"symbol": "♜", "color": "w"}
+            ];
+            
+            return board;
         }
         
         /**
@@ -376,11 +355,11 @@
          */
         async function loadModels() {
             try {
-                console.log("Fetching available models from server");
+                log("Fetching available models from server");
                 const response = await fetch('/models');
                 const data = await response.json();
                 models = data.models;
-                console.log(`${models.length} models loaded from server`);
+                log(`${models.length} models loaded from server`);
                 
                 // Get references to the dropdown elements
                 const model1Select = document.getElementById('model1Select');
@@ -413,7 +392,7 @@
                     model2Select.appendChild(option2);
                 });
                 
-                console.log("Model dropdowns populated");
+                log("Model dropdowns populated");
             } catch (error) {
                 console.error("Error loading models:", error);
                 showToast('Error loading models: ' + error.message);
@@ -560,24 +539,24 @@
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/ws/${gameId}`;
             
-            console.log(`Connecting to WebSocket at ${wsUrl}`);
+            log(`Connecting to WebSocket at ${wsUrl}`);
             socket = new WebSocket(wsUrl);
             
             // Connection established handler
             socket.onopen = () => {
-                console.log('WebSocket connected successfully');
+                log('WebSocket connected successfully');
             };
             
             // Message received handler
             socket.onmessage = (event) => {
                 const message = JSON.parse(event.data);
-                console.log("WebSocket message received:", message);
+                log("WebSocket message received: " + message.type);
                 handleWebSocketMessage(message);
             };
             
             // Connection closed handler
             socket.onclose = () => {
-                console.log('WebSocket connection closed');
+                log('WebSocket connection closed');
             };
             
             // Error handler
@@ -601,7 +580,7 @@
          * @param {Object} message - The parsed message received from the server
          */
         function handleWebSocketMessage(message) {
-            console.log('Received WebSocket message:', message.type);
+            log('Received WebSocket message: ' + message.type);
             
             switch (message.type) {
                 case 'game_state':
@@ -635,7 +614,7 @@
                         document.getElementById('commentary').innerHTML = statusHtml;
                     } else {
                         // Just show the status message
-                        document.getElementById('commentary').textContent = message.data.message;
+                        document.getElementById('commentary').innerHTML = highlightChessAnnotations(message.data.message);
                     }
                     break;
                     
@@ -703,9 +682,9 @@
             updateChessBoard(data.board);
             gameBoard = data.board;
             
-            // Update move list
+            // Update move list (replace all moves with full game state)
             if (data.moves && data.moves.length > 0) {
-                updateMoveList(data.moves);
+                updateMoveList(data.moves, null, null, true);
             }
             
             // Update commentary
@@ -715,195 +694,167 @@
         }
         
         /**
-         * Renders the chessboard based on the provided board data
-         * @param {Array} board - The board data array with piece and color information
+         * Update the chess board state (p5.js will handle rendering)
          */
         function updateChessBoard(board) {
-            // Get the board container element
-            const boardElement = document.getElementById('chessBoard');
-            
-            // Clear previous content
-            boardElement.innerHTML = '';
-            
-            // Validate input data
             if (!board || !Array.isArray(board) || board.length === 0) {
-                console.warn("Invalid board data received. Using empty board.");
                 board = createEmptyBoard();
             }
             
-            // Normalize board data to our expected format
-            const normalizedBoard = normalizeBoard(board);
-            
-            // Create the chess grid container
-            const chessGrid = document.createElement('div');
-            chessGrid.className = 'chess-grid';
-            
-            // Create the board rows with pieces
-            for (let row = 0; row < 8; row++) {
-                const boardRow = document.createElement('div');
-                boardRow.className = 'board-row';
-                
-                // Add cells for this row
-                for (let col = 0; col < 8; col++) {
-                    // Create cell with appropriate coloring
-                    const isLightSquare = (row + col) % 2 === 1;
-                    const cell = document.createElement('div');
-                    cell.className = `board-cell ${isLightSquare ? 'light-square' : 'dark-square'}`;
-                    
-                    // Get piece info from the normalized board
-                    const pieceInfo = normalizedBoard[row][col];
-                    const symbol = pieceInfo.symbol || '';
-                    const pieceColor = pieceInfo.color || '';
-                    
-                    // Add piece to cell if it exists
-                    if (symbol) {
-                        // Add piece color class
-                        if (pieceColor === 'w') {
-                            cell.classList.add('piece-white');
-                        } else if (pieceColor === 'b') {
-                            cell.classList.add('piece-black');
-                        }
-                        cell.textContent = symbol;
-                    }
-                    
-                    boardRow.appendChild(cell);
-                }
-                
-                chessGrid.appendChild(boardRow);
-            }
-            
-            // Add the completed chess grid to the board element
-            boardElement.appendChild(chessGrid);
+            gameBoard = normalizeBoard(board);
+            log('Board updated, p5.js will redraw');
         }
         
         /**
-         * Normalizes different board data formats to our standard format
-         * @param {Array} board - The board data to normalize
-         * @returns {Array} - Normalized 8x8 board with object format {symbol, color}
+         * p5.js setup function
          */
-        function normalizeBoard(board) {
-            // Create an empty board as fallback
-            const normalizedBoard = createEmptyBoard();
+        function setup() {
+            chessCanvas = createCanvas(boardSize, boardSize);
+            chessCanvas.parent('chessBoard');
             
-            try {
-                // Check if we have valid board data
-                if (board.length < 8) {
-                    console.warn("Board data has fewer than 8 rows, using partial data.");
-                    return normalizedBoard;
-                }
-                
-                // Special case: Handle the specific format where each row has empty strings between pieces
-                // This format looks like: ["♜", "", "♞", "", "♝", "", ...] with alternating pieces and empty strings
-                const hasAlternatingFormat = board[0] && Array.isArray(board[0]) && board[0].length > 8 && 
-                                           board[0].filter((item, index) => index % 2 === 1)
-                                                  .every(item => item === "" || item === " ");
-                
-                if (hasAlternatingFormat) {
-                    console.log("Detected alternating piece/empty format, handling specially");
-                    // Process rows with alternating pieces and empty spaces
-                    for (let row = 0; row < 8; row++) {
-                        if (row < board.length) {
-                            for (let col = 0; col < 8; col++) {
-                                // Pieces are at even indices (0, 2, 4, 6, etc.)
-                                const pieceIndex = col * 2;
-                                if (pieceIndex < board[row].length) {
-                                    const piece = board[row][pieceIndex];
-                                    if (piece && typeof piece === 'string' && piece.trim() !== '') {
-                                        normalizedBoard[row][col] = {
-                                            symbol: piece,
-                                            // For Unicode chess symbols:
-                                            // - Looking at actual data in the board: row 0-1 = black, row 6-7 = white
-                                            color: (row <= 1) ? 'b' : (row >= 6) ? 'w' : 
-                                                   // Fallback for pieces in the middle 
-                                                   // (detection based on shape, not reliable but better than nothing)
-                                                   (piece === '♟' && row < 4) ? 'b' : 
-                                                   (piece === '♟' && row >= 4) ? 'w' : ''
-                                        };
-                                    }
-                                }
-                            }
-                        }
+            // Define colors
+            lightColor = color(240, 217, 181); // #f0d9b5
+            darkColor = color(181, 136, 99);   // #b58863
+            
+            // Initialize with standard position
+            gameBoard = createStandardPosition();
+        }
+        
+        /**
+         * p5.js draw function - renders every frame
+         */
+        function draw() {
+            background(45, 45, 45); // Dark background
+            
+            // Draw the board squares
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    // Determine square color (a1 should be dark)
+                    if ((row + col) % 2 === 1) {
+                        fill(darkColor);
+                    } else {
+                        fill(lightColor);
                     }
-                    return normalizedBoard;
-                }
-                
-                // Determine if we have the expected object format {symbol, color}
-                const hasExpectedFormat = board[0] && board[0][0] && 
-                                         typeof board[0][0] === 'object' && 
-                                         board[0][0].hasOwnProperty('symbol');
-                
-                if (hasExpectedFormat) {
-                    // Copy data to our normalized structure
-                    for (let row = 0; row < 8; row++) {
-                        for (let col = 0; col < 8; col++) {
-                            if (row < board.length && col < board[row].length) {
-                                const pieceData = board[row][col];
-                                if (pieceData && pieceData.symbol) {
-                                    normalizedBoard[row][col] = {
-                                        symbol: pieceData.symbol,
-                                        color: pieceData.color || ''
-                                    };
-                                }
-                            }
+                    
+                    // Draw square
+                    rect(col * squareSize, row * squareSize, squareSize, squareSize);
+                    
+                    // Draw piece if present
+                    const piece = gameBoard[row][col];
+                    if (piece && piece.symbol) {
+                        // Set piece color based on piece.color
+                        if (piece.color === 'w') {
+                            fill(255); // White pieces
+                            stroke(0);
+                            strokeWeight(1);
+                        } else {
+                            fill(0); // Black pieces
+                            noStroke();
                         }
-                    }
-                } else {
-                    // Handle legacy format (array of strings or other formats)
-                    for (let row = 0; row < 8; row++) {
-                        for (let col = 0; col < 8; col++) {
-                            if (row < board.length && col < board[row].length) {
-                                const pieceData = board[row][col];
-                                
-                                // Handle different possible data types
-                                if (typeof pieceData === 'string' && pieceData.trim() !== '') {
-                                    // If it's a non-empty string, assume it's a Unicode piece
-                                    normalizedBoard[row][col] = {
-                                        symbol: pieceData,
-                                        // Basic inference based on position (rows 0-1 are black, rows 6-7 are white)
-                                        color: (row <= 1) ? 'b' : (row >= 6) ? 'w' : 
-                                              // Fallback for middle pieces (less reliable)
-                                              (pieceData === pieceData.toUpperCase()) ? 'w' : 'b'
-                                    };
-                                } else if (typeof pieceData === 'object' && pieceData !== null) {
-                                    // Copy object properties
-                                    normalizedBoard[row][col] = {
-                                        symbol: pieceData.symbol || '',
-                                        color: pieceData.color || ''
-                                    };
-                                }
-                                // All other cases leave the cell empty
-                            }
-                        }
+                        
+                        textAlign(CENTER, CENTER);
+                        textSize(32);
+                        text(piece.symbol, 
+                             col * squareSize + squareSize/2, 
+                             row * squareSize + squareSize/2);
+                        
+                        noStroke(); // Reset stroke
                     }
                 }
-            } catch (error) {
-                console.error("Error normalizing board data:", error);
             }
             
-            return normalizedBoard;
+            // Draw coordinates
+            drawCoordinates();
+            
+            // Handle move animation
+            if (animatingPiece) {
+                drawAnimatingPiece();
+            }
+        }
+        
+        /**
+         * Draw coordinate labels
+         */
+        function drawCoordinates() {
+            fill(200); // Light gray
+            textAlign(CENTER, CENTER);
+            textSize(12);
+            
+            // File labels (a-h) at bottom
+            for (let col = 0; col < 8; col++) {
+                text(String.fromCharCode(97 + col), 
+                     col * squareSize + squareSize/2, 
+                     boardSize + 15);
+            }
+            
+            // Rank labels (8-1) on right
+            textAlign(LEFT, CENTER);
+            for (let row = 0; row < 8; row++) {
+                text(8 - row, 
+                     boardSize + 5, 
+                     row * squareSize + squareSize/2);
+            }
+        }
+        
+        /**
+         * Simplified board normalization
+         */
+        function normalizeBoard(board) {
+            const normalized = createEmptyBoard();
+            
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    if (board[row] && board[row][col]) {
+                        const piece = board[row][col];
+                        
+                        // Handle different piece formats
+                        let symbol = '';
+                        let color = '';
+                        
+                        if (typeof piece === 'string') {
+                            symbol = piece;
+                        } else if (typeof piece === 'object' && piece !== null) {
+                            symbol = piece.symbol || '';
+                            color = piece.color || '';
+                        }
+                        
+                        // Only add piece if it has a valid symbol
+                        if (symbol && typeof symbol === 'string') {
+                            normalized[row][col] = {
+                                symbol: symbol,
+                                color: color
+                            };
+                        }
+                    }
+                }
+            }
+            
+            return normalized;
         }
         
         
         
         // Handle a move being made
         function handleMoveMade(data) {
-            // Update move list if needed, showing interpretation info if available
+            // Update move list
             updateMoveList([data.move], [data.raw_move], [data.interpreted]);
             
-            // Store the last move for highlighting on the board
-            // Convert SAN format to UCI format if needed
-            if (data.move && data.move.length >= 2) {
-                // Store the move data for highlighting the cells
+            // Store the last move and trigger animation
+            if (data.move && data.move.length >= 4) {
                 lastMove = data.move;
-                console.log("Last move set to: " + lastMove);
+                log("Last move set to: " + lastMove);
+                
+                // Trigger p5.js animation
+                triggerMoveAnimation();
             }
             
-            // Add visual highlight to commentary (might be placeholder if commentary is still loading)
-            const highlightedCommentary = highlightChessAnnotations(data.commentary);
+            // Add visual highlight to commentary
+            const commentary = data.commentary || '';
+            const highlightedCommentary = highlightChessAnnotations(commentary);
             document.getElementById('commentary').innerHTML = highlightedCommentary;
             
-            // Apply any visual effects
-            applyCommentaryEffects(data.commentary);
+            // Apply any visual effects (simplified - no confetti)
+            applyCommentaryEffects(commentary);
             
             // Show toast if move was interpreted
             if (data.interpreted) {
@@ -926,21 +877,8 @@
             } else if (commentary.includes('!!') || commentary.includes('brilliant')) {
                 // Brilliant move effect - add gold text
                 commentaryElement.classList.add('brilliant-effect');
-                
-                // Simplified confetti effect for brilliant moves
-                confetti({
-                    particleCount: 50,
-                    spread: 45,
-                    origin: { y: 0.6 }
-                });
-            } else if (commentary.includes('checkmate') || commentary.includes('#')) {
-                // Simple checkmate effect
-                confetti({
-                    particleCount: 100,
-                    spread: 60,
-                    origin: { y: 0.6 }
-                });
             }
+            // Removed confetti effects since we're using p5.js now
         }
         
         // Handle game over event
@@ -954,13 +892,6 @@
             if (data.result.result === 'win') {
                 winner = formatModelName(data.result.winner_model);
                 result = `<strong>${winner}</strong> won the game!`;
-                
-                // Celebration confetti for the winner
-                confetti({
-                    particleCount: 200,
-                    spread: 90,
-                    origin: { y: 0.6 }
-                });
             } else if (data.result.result === 'draw') {
                 result = `Game ended in a draw.`;
             } else {
@@ -991,7 +922,7 @@
         }
         
         // Update the move list display
-        function updateMoveList(moves, rawMoves, interpreted) {
+        function updateMoveList(moves, rawMoves, interpreted, replaceAll = false) {
             const moveList = document.getElementById('moveList');
             
             if (!moves || moves.length === 0) {
@@ -999,8 +930,8 @@
                 return;
             }
             
-            // If this is the first move, clear the "No moves yet" text
-            if (moveList.textContent === 'No moves yet') {
+            // If replacing all moves or this is the first move, clear everything
+            if (replaceAll || moveList.textContent === 'No moves yet') {
                 moveList.innerHTML = '';
             }
             
@@ -1009,7 +940,7 @@
             let rawArray = Array.isArray(rawMoves) ? rawMoves : (rawMoves ? [rawMoves] : null); 
             let interpretedArray = Array.isArray(interpreted) ? interpreted : (interpreted ? [interpreted] : null);
             
-            // Add each new move to the list
+            // Add each move to the list
             moveArray.forEach((move, i) => {
                 const moveNumber = Math.floor((document.querySelectorAll('.move-entry').length + i) / 2) + 1;
                 const isWhiteMove = (document.querySelectorAll('.move-entry').length + i) % 2 === 0;
@@ -1060,7 +991,7 @@
             try {
                 document.getElementById('gameOverModal').close();
             } catch (e) {
-                console.log("Modal was not open");
+                log("Modal was not open", "debug");
             }
             
             // Reset UI
@@ -1187,33 +1118,143 @@
         
         // Highlight chess annotation symbols in commentary
         function highlightChessAnnotations(text) {
-            const annotations = {
-                '!!': '<span class="text-success font-bold">!!</span>',  // Brilliant move
-                '!': '<span class="text-success">!</span>',              // Good move
-                '?!': '<span class="text-warning">?!</span>',           // Questionable move
-                '?': '<span class="text-warning">?</span>',             // Mistake
-                '??': '<span class="text-error font-bold">??</span>',    // Blunder
-                '!?': '<span class="text-info">!?</span>',              // Interesting move
-                '□': '<span class="text-info">□</span>',                // With the idea
-                '⊕': '<span class="text-info">⊕</span>',                // With an attack
-                '∞': '<span class="text-info">∞</span>',                // Unclear position
-                '=': '<span class="text-info">=</span>',                // Equal position
-                '±': '<span class="text-success">±</span>',             // White has a slight advantage
-                '∓': '<span class="text-success">∓</span>',             // Black has a slight advantage
-                '+−': '<span class="text-success">+−</span>',           // White has a decisive advantage
-                '−+': '<span class="text-success">−+</span>',           // Black has a decisive advantage
-                '+': '<span class="text-warning">+</span>',             // Check
-                '#': '<span class="text-error font-bold">#</span>'      // Checkmate
-            };
+            if (!text || typeof text !== 'string') return text;
+            
+            // Skip if already processed (contains HTML tags)
+            if (text.includes('<span')) return text;
+            
+            const annotations = [
+                // Order matters: longer patterns first to avoid partial matches
+                ['!!', '✨'],    // Brilliant move
+                ['??', '💥'],    // Blunder
+                ['!?', '🤔'],    // Interesting move
+                ['?!', '⚠️'],    // Questionable move
+                ['!', '✅'],     // Good move
+                ['?', '❓'],     // Mistake
+                ['□', '💡'],     // With the idea
+                ['⊕', '⚔️'],     // With an attack
+                ['∞', '🌀'],     // Unclear position
+                ['=', '⚖️'],     // Equal position
+                ['±', '📈'],     // White has a slight advantage
+                ['∓', '📉'],     // Black has a slight advantage
+                ['+−', '🔥'],    // White has a decisive advantage
+                ['−+', '❄️'],    // Black has a decisive advantage
+                ['+', '👑'],     // Check
+                ['#', '🏆']      // Checkmate
+            ];
             
             let result = text;
             
-            // Replace annotation symbols with highlighted versions
-            for (const [symbol, highlight] of Object.entries(annotations)) {
-                result = result.replace(new RegExp(symbol.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g'), highlight);
+            // Replace annotation symbols with emojis
+            for (const [symbol, emoji] of annotations) {
+                // Use word boundaries and exact matches to avoid partial replacements
+                const escapedSymbol = symbol.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                const regex = new RegExp(`\\b${escapedSymbol}\\b|(?<=\\s)${escapedSymbol}(?=\\s)|(?<=\\s)${escapedSymbol}$|^${escapedSymbol}(?=\\s)|^${escapedSymbol}$`, 'g');
+                result = result.replace(regex, emoji);
             }
             
             return result;
+        }
+        
+        /**
+         * Animate piece movement with p5.js
+         */
+        function animateMove(fromSquare, toSquare, piece) {
+            if (!fromSquare || !toSquare || !piece) return;
+            
+            const fromCoords = algebraicToCoords(fromSquare);
+            const toCoords = algebraicToCoords(toSquare);
+            
+            // Set up animation
+            animatingPiece = {
+                symbol: piece,
+                fromX: fromCoords.col * squareSize + squareSize/2,
+                fromY: fromCoords.row * squareSize + squareSize/2,
+                toX: toCoords.col * squareSize + squareSize/2,
+                toY: toCoords.row * squareSize + squareSize/2,
+                currentX: fromCoords.col * squareSize + squareSize/2,
+                currentY: fromCoords.row * squareSize + squareSize/2,
+                progress: 0,
+                duration: 30 // frames
+            };
+            
+            // Clear the piece from the from square during animation
+            gameBoard[fromCoords.row][fromCoords.col] = {symbol: '', color: ''};
+        }
+        
+        /**
+         * Draw the animating piece
+         */
+        function drawAnimatingPiece() {
+            if (!animatingPiece) return;
+            
+            // Update animation progress
+            animatingPiece.progress += 1;
+            
+            // Calculate current position using easing
+            const t = animatingPiece.progress / animatingPiece.duration;
+            const easedT = easeOutCubic(t);
+            
+            animatingPiece.currentX = lerp(animatingPiece.fromX, animatingPiece.toX, easedT);
+            animatingPiece.currentY = lerp(animatingPiece.fromY, animatingPiece.toY, easedT);
+            
+            // Draw the moving piece with proper color
+            if (animatingPiece.color === 'w') {
+                fill(255); // White pieces
+                stroke(0);
+                strokeWeight(1);
+            } else {
+                fill(0); // Black pieces
+                noStroke();
+            }
+            
+            textAlign(CENTER, CENTER);
+            textSize(32);
+            text(animatingPiece.symbol, animatingPiece.currentX, animatingPiece.currentY);
+            
+            noStroke(); // Reset stroke
+            
+            // End animation
+            if (animatingPiece.progress >= animatingPiece.duration) {
+                const toCoords = algebraicToCoords(lastMove.substring(2, 4));
+                gameBoard[toCoords.row][toCoords.col] = {
+                    symbol: animatingPiece.symbol,
+                    color: animatingPiece.color
+                };
+                animatingPiece = null;
+            }
+        }
+        
+        /**
+         * Easing function for smooth animation
+         */
+        function easeOutCubic(t) {
+            return 1 - Math.pow(1 - t, 3);
+        }
+        
+        /**
+         * Convert algebraic notation to coordinates
+         */
+        function algebraicToCoords(square) {
+            const file = square.charCodeAt(0) - 97;
+            const rank = 8 - parseInt(square[1]);
+            return { row: rank, col: file };
+        }
+        
+        /**
+         * Trigger move animation when a move is made
+         */
+        function triggerMoveAnimation() {
+            if (!lastMove || lastMove.length < 4) return;
+            
+            const fromSquare = lastMove.substring(0, 2);
+            const toSquare = lastMove.substring(2, 4);
+            const fromCoords = algebraicToCoords(fromSquare);
+            
+            const piece = gameBoard[fromCoords.row][fromCoords.col];
+            if (piece && piece.symbol) {
+                animateMove(fromSquare, toSquare, piece);
+            }
         }
     </script>
 </body>

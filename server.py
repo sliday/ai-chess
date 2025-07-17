@@ -37,6 +37,17 @@ with open("models.txt", "r") as f:
 # Results file path
 RESULTS_FILE = "results.txt"
 
+# Configuration constants
+MAX_MOVE_LENGTH = 10
+MAX_RAW_MOVE_LENGTH = 50
+MAX_MODEL_NAME_LENGTH = 100
+MAX_MOVE_RETRIES = 5
+MAX_API_RETRIES = 3
+MOVE_LIMIT_THRESHOLD = 70
+HTTP_TIMEOUT = 45.0
+COMMENTARY_TIMEOUT = 30.0
+GAME_DELAY = 1.0
+
 # OpenRouter API key (get from environment variable)
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 if not OPENROUTER_API_KEY:
@@ -82,6 +93,13 @@ class GameResult(BaseModel):
 
 # Class to manage the chess game with full state tracking
 class ChessGame:
+    """
+    Represents a chess game between two AI models.
+    
+    Manages the complete state of a chess game including board position,
+    move history, player turns, and game completion detection.
+    """
+    
     def __init__(self, model1: str, model2: str):
         """Initialize a new chess game between two AI models
         
@@ -120,6 +138,13 @@ class ChessGame:
     
     def apply_move(self, move_str: str) -> bool:
         try:
+            # Input validation
+            if not validate_string_input(move_str, MAX_MOVE_LENGTH, "move_str"):
+                self.status = "finished"
+                self.winner = 1 - self.current_player
+                self.reason = "invalid_notation"
+                return False
+                
             move = chess.Move.from_uci(move_str)
             if move in self.board.legal_moves:
                 self.board.push(move)
@@ -127,14 +152,22 @@ class ChessGame:
                 self.current_player = 1 - self.current_player  # Switch player
                 return True
             else:
+                logger.warning(f"Illegal move attempted: {move_str}")
                 self.status = "finished"
                 self.winner = 1 - self.current_player  # Current player loses
                 self.reason = "illegal_move"
                 return False
-        except ValueError:
+        except ValueError as e:
+            logger.error(f"ValueError in apply_move: {e}")
             self.status = "finished"
             self.winner = 1 - self.current_player  # Current player loses
             self.reason = "invalid_notation"
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error in apply_move: {e}")
+            self.status = "finished"
+            self.winner = 1 - self.current_player
+            self.reason = "move_processing_error"
             return False
     
     def is_game_over(self) -> bool:
@@ -199,11 +232,13 @@ class ChessGame:
             }
         
         winner_model = self.model1 if self.winner == 0 else self.model2
+        loser_model = self.model2 if self.winner == 0 else self.model1
         return {
             "status": "finished",
             "result": "win",
             "winner": self.winner,
             "winner_model": winner_model,
+            "loser_model": loser_model,
             "reason": self.reason
         }
     
@@ -323,18 +358,33 @@ class GameManager:
     def load_results(self) -> List[GameResult]:
         """Load game results from file"""
         results = []
-        if os.path.exists(RESULTS_FILE):
-            with open(RESULTS_FILE, "r") as f:
-                for line in f:
-                    if line.strip():
-                        parts = line.strip().split(",")
-                        if len(parts) == 4:
-                            results.append(GameResult(
-                                model1=parts[0],
-                                model2=parts[1],
-                                winner=int(parts[2]),
-                                timestamp=parts[3]
-                            ))
+        try:
+            if os.path.exists(RESULTS_FILE):
+                with open(RESULTS_FILE, "r") as f:
+                    for line_num, line in enumerate(f, 1):
+                        try:
+                            if line.strip():
+                                parts = line.strip().split(",")
+                                if len(parts) == 4:
+                                    # Validate data before creating GameResult
+                                    winner = int(parts[2])
+                                    if winner not in [0, 1]:
+                                        logger.warning(f"Invalid winner value on line {line_num}: {winner}")
+                                        continue
+                                    
+                                    results.append(GameResult(
+                                        model1=parts[0],
+                                        model2=parts[1],
+                                        winner=winner,
+                                        timestamp=parts[3]
+                                    ))
+                                else:
+                                    logger.warning(f"Invalid line format on line {line_num}: {line.strip()}")
+                        except (ValueError, IndexError) as e:
+                            logger.error(f"Error parsing line {line_num}: {e}")
+                            continue
+        except Exception as e:
+            logger.error(f"Error loading results from {RESULTS_FILE}: {e}")
         return results
     
     def save_result(self, result: GameResult):
@@ -345,6 +395,12 @@ class GameManager:
     
     def create_game(self, model1: Optional[str] = None, model2: Optional[str] = None) -> str:
         """Create a new game with specified or random models"""
+        # Input validation
+        if model1 and not validate_string_input(model1, MAX_MODEL_NAME_LENGTH, "model1"):
+            raise ValueError(f"Invalid model1: {model1}")
+        if model2 and not validate_string_input(model2, MAX_MODEL_NAME_LENGTH, "model2"):
+            raise ValueError(f"Invalid model2: {model2}")
+        
         if not model1 or model1 == "random":
             model1 = random.choice(MODELS)
         
@@ -354,8 +410,8 @@ class GameManager:
             model2 = random.choice(available_models)
         
         # Ensure consistent model ID formatting (no leading slashes)
-        normalized_model1 = model1.lstrip('/') if model1 else None
-        normalized_model2 = model2.lstrip('/') if model2 else None
+        normalized_model1 = normalize_model_id(model1)
+        normalized_model2 = normalize_model_id(model2)
         
         game_id = f"game_{int(time.time())}_{random.randint(1000, 9999)}"
         self.active_games[game_id] = ChessGame(normalized_model1, normalized_model2)
@@ -474,6 +530,43 @@ class GameManager:
             
         return f"{provider} / {model_name}"
 
+# Utility functions for common operations
+def validate_string_input(value: str, max_length: int, field_name: str) -> bool:
+    """
+    Validate string input with comprehensive checks.
+    
+    Args:
+        value: The string value to validate
+        max_length: Maximum allowed length for the string
+        field_name: Name of the field for error logging
+        
+    Returns:
+        True if valid, False otherwise
+    """
+    if not value or not isinstance(value, str):
+        logger.warning(f"Invalid {field_name} input: {value}")
+        return False
+    
+    if len(value.strip()) > max_length:
+        logger.warning(f"{field_name} too long: {len(value)} characters")
+        return False
+    
+    return True
+
+def safe_file_operation(file_path: str, operation: str, func, *args, **kwargs):
+    """Safely perform file operations with error handling"""
+    try:
+        return func(*args, **kwargs)
+    except Exception as e:
+        logger.error(f"Error during {operation} on {file_path}: {e}")
+        return None
+
+def normalize_model_id(model_id: str) -> str:
+    """Normalize model ID by removing leading slashes"""
+    if not model_id:
+        return ""
+    return model_id.lstrip('/')
+
 # Initialize game manager
 game_manager = GameManager()
 
@@ -489,7 +582,12 @@ async def interpret_move(raw_move: str, board_state: str, current_player: int = 
     Returns:
         UCI move string or "INVALID"
     """
-    if not raw_move:
+    # Input validation
+    if not validate_string_input(raw_move, MAX_RAW_MOVE_LENGTH, "raw_move"):
+        return "INVALID"
+    
+    if not isinstance(current_player, int) or current_player not in [0, 1]:
+        logger.warning(f"Invalid current_player: {current_player}")
         return "INVALID"
     
     # Clean up the raw move (remove extra spaces, punctuation, newlines)
@@ -604,11 +702,11 @@ async def interpret_move(raw_move: str, board_state: str, current_player: int = 
         "model": interpreter_model,
         "messages": [
             {
-                "role": "system", 
+                "role": "system",
                 "content": "You are a chess move interpreter. Output only a 4-character UCI move or 'INVALID'."
             },
             {
-                "role": "user", 
+                "role": "user",
                 "content": f"""
 Board FEN: {current_fen}
 Active player: {"WHITE" if active_color == 'w' else "BLACK"}
@@ -635,10 +733,10 @@ No explanation, no additional text.
                 
                 # If the interpretation is "INVALID" or doesn't look like a UCI move, return invalid
                 if interpretation == "INVALID" or not (
-                    len(interpretation) == 4 and 
-                    interpretation[0] in "abcdefgh" and 
+                    len(interpretation) == 4 and
+                    interpretation[0] in "abcdefgh" and
                     interpretation[1] in "12345678" and
-                    interpretation[2] in "abcdefgh" and 
+                    interpretation[2] in "abcdefgh" and
                     interpretation[3] in "12345678"
                 ):
                     return "INVALID"
@@ -669,7 +767,7 @@ No explanation, no additional text.
                 logger.error(f"Interpreter Error Response: {e.response.text}")
             return "INVALID"
 
-async def call_model(model: str, prompt: str, max_retries: int = 3) -> str:
+async def call_model(model: str, prompt: str, max_retries: int = MAX_API_RETRIES) -> str:
     """Call a model via OpenRouter API with improved retry logic and model ID handling
     
     This function handles all aspects of communicating with the OpenRouter API including:
@@ -796,8 +894,8 @@ Your move:
 
                 # Check for empty content or missing message content - common with move limits
                 no_content = False
-                if ("choices" in response_data and len(response_data["choices"]) > 0 and 
-                    (not response_data["choices"][0].get("message", {}).get("content") or 
+                if ("choices" in response_data and len(response_data["choices"]) > 0 and
+                    (not response_data["choices"][0].get("message", {}).get("content") or
                      response_data["choices"][0].get("message", {}).get("content", "").strip() == "")):
                     no_content = True
                     logger.warning(f"Empty response from {current_model}. This may indicate a move limit has been reached.")
@@ -820,7 +918,7 @@ Your move:
                 log_response = {
                     "id": response_data.get("id", "unknown"),
                     "model": response_data.get("model", "unknown"),
-                    "choices": [{"index": c.get("index"), "message": {"role": c.get("message", {}).get("role")}} 
+                    "choices": [{"index": c.get("index"), "message": {"role": c.get("message", {}).get("role")}}
                                 for c in response_data.get("choices", [])]
                 }
                 logger.info(f"OpenRouter response for {current_model} (attempt {attempt+1}): {json.dumps(log_response)}")
@@ -874,13 +972,14 @@ async def get_commentary(board_state: str, last_move: str, moves_history: list =
     # Create a task for the commentary but don't await it immediately
     return asyncio.create_task(_fetch_commentary(board_state, last_move, moves_history))
 
-async def generate_friendly_game_over_reason(reason: str, winner_model: str, result_type: str) -> str:
+async def generate_friendly_game_over_reason(reason: str, winner_model: str, result_type: str, loser_model: str = "") -> str:
     """Generate a user-friendly explanation for why the game ended
     
     Args:
         reason: Technical reason the game ended (e.g., 'invalid_notation', 'checkmate')
         winner_model: The model that won (if any)
         result_type: Type of result ('win', 'draw', etc.)
+        loser_model: The model that lost (if any)
         
     Returns:
         A user-friendly explanation of the game outcome
@@ -897,9 +996,9 @@ async def generate_friendly_game_over_reason(reason: str, winner_model: str, res
     # Map technical reasons to types of explanations needed
     explanation_prompt = ""
     if reason == "invalid_notation":
-        explanation_prompt = "Explain why the model failed to make a valid chess move (friendly explanation for non-experts)."
+        explanation_prompt = f"Explain why {loser_model} failed to make a valid chess move (friendly explanation for non-experts)."
     elif reason == "illegal_move":
-        explanation_prompt = "Explain why a model might attempt an illegal chess move (friendly explanation for non-experts)."
+        explanation_prompt = f"Explain why {loser_model} attempted an illegal chess move (friendly explanation for non-experts)."
     elif reason == "checkmate":
         explanation_prompt = "Describe the victory by checkmate in fun, simple terms."
     elif reason == "reached_move_limit":
@@ -923,6 +1022,7 @@ async def generate_friendly_game_over_reason(reason: str, winner_model: str, res
 The chess game just ended with the following outcome:
 - Result: {result_type}
 - Winner: {winner_model if result_type == 'win' else 'None (Draw)'}
+- Loser: {loser_model if result_type == 'win' and loser_model else 'None (Draw)'}
 - Technical reason: {reason}
 
 {explanation_prompt}
@@ -998,7 +1098,7 @@ Last move: {last_move}
 
 Use these chess annotation symbols when appropriate:
 !! (brilliant move), ! (good move), ?! (questionable move), ? (mistake), ?? (blunder), !? (interesting move),
-⊕ (with an attack), ∞ (unclear position), = (equal position), 
+⊕ (with an attack), ∞ (unclear position), = (equal position),
 ± (White has a slight advantage), ∓ (Black has a slight advantage),
 +− (White has a decisive advantage), −+ (Black has a decisive advantage)
 """
@@ -1544,9 +1644,10 @@ No intro, no outro, only your next move in proper UCI format (e.g., "e2e4" for m
         # Generate a friendly explanation of why the game ended
         try:
             friendly_reason = await generate_friendly_game_over_reason(
-                result.get("reason", "unknown"), 
-                result.get("winner_model", ""), 
-                result.get("result", "unknown")
+                result.get("reason", "unknown"),
+                result.get("winner_model", ""),
+                result.get("result", "unknown"),
+                result.get("loser_model", "")
             )
         except Exception as e:
             logger.error(f"Error generating friendly game over reason: {e}")
@@ -1589,4 +1690,4 @@ No intro, no outro, only your next move in proper UCI format (e.g., "e2e4" for m
 # Run the application with Uvicorn when executing this file directly
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8008)
