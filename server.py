@@ -530,6 +530,29 @@ class GameManager:
         ("Dolphin", "🐬"), ("Eagle", "🦅"), ("Falcon", "🦅"), ("Dragon", "🐉"), ("Phoenix", "🔥"),
         ("Knight", "♞"), ("Rook", "♜"), ("Wizard", "🧙"), ("Ninja", "🥷"), ("Pirate", "🏴‍☠️")
     ]
+    CHAT_NUMERALS = ["II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
+
+    def _generate_username(self) -> str:
+        """Generate a unique username, adding numerals only when base names exhausted"""
+        used = set(self.connection_usernames.values())
+
+        # Try base names first (no numeral)
+        for adj in random.sample(self.CHAT_ADJECTIVES, len(self.CHAT_ADJECTIVES)):
+            for noun, emoji in random.sample(self.CHAT_NOUNS, len(self.CHAT_NOUNS)):
+                username = f"{adj} {noun} {emoji}"
+                if username not in used:
+                    return username
+
+        # All 320 base names taken, add numerals
+        for numeral in self.CHAT_NUMERALS:
+            for adj in random.sample(self.CHAT_ADJECTIVES, len(self.CHAT_ADJECTIVES)):
+                for noun, emoji in random.sample(self.CHAT_NOUNS, len(self.CHAT_NOUNS)):
+                    username = f"{adj} {noun} {numeral} {emoji}"
+                    if username not in used:
+                        return username
+
+        # Fallback (extremely unlikely: 320 + 2880 = 3200 users)
+        return f"Guest_{random.randint(10000, 99999)}"
 
     async def connect(self, websocket: WebSocket, game_id: str):
         """Connect a websocket to a game"""
@@ -537,10 +560,8 @@ class GameManager:
         if game_id not in self.connections:
             self.connections[game_id] = []
         self.connections[game_id].append(websocket)
-        # Assign anonymous username: Adjective + Noun + Emoji
-        adj = random.choice(self.CHAT_ADJECTIVES)
-        noun, emoji = random.choice(self.CHAT_NOUNS)
-        username = f"{adj} {noun} {emoji}"
+        # Assign anonymous username
+        username = self._generate_username()
         self.connection_usernames[websocket] = username
         logger.info(f"Client connected to game {game_id} as {username}. Total clients: {len(self.connections[game_id])}")
         
