@@ -990,7 +990,9 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
                             bot_response = await get_chat_bot_response(
                                 commentary=commentary,
                                 chat_history=chat_history,
-                                viewer_count=viewer_count
+                                viewer_count=viewer_count,
+                                white_model=game.model1,
+                                black_model=game.model2
                             )
                             if bot_response:
                                 now = time.time()
@@ -1880,10 +1882,20 @@ The chess game just ended with the following outcome:
 
 # Chat bot state
 _chat_bot_last_message_time = 0
+CHAT_BOT_QUESTION_CHANCE = 0.1  # 10% chance to ask other chatters questions
 
 
-async def get_chat_bot_response(commentary: str, chat_history: list, viewer_count: int = 1, user_message: str = None, direct_mention: bool = False) -> Optional[str]:
-    """Generate a chat bot response using Grok
+async def get_chat_bot_response(
+    commentary: str,
+    chat_history: list,
+    viewer_count: int = 1,
+    user_message: str = None,
+    direct_mention: bool = False,
+    white_model: str = None,
+    black_model: str = None,
+    initiate_conversation: bool = False
+) -> Optional[str]:
+    """Generate a chat bot response
 
     Args:
         commentary: The latest game commentary
@@ -1891,6 +1903,9 @@ async def get_chat_bot_response(commentary: str, chat_history: list, viewer_coun
         viewer_count: Number of humans watching (excluding the bot)
         user_message: If responding to a specific user message
         direct_mention: If the bot was directly mentioned/asked
+        white_model: The model playing white (e.g. "openai/gpt-4o")
+        black_model: The model playing black (e.g. "anthropic/claude-sonnet-4")
+        initiate_conversation: If True, bot will try to start a conversation
 
     Returns:
         A short chat message or None if rate limited / error
@@ -1903,8 +1918,13 @@ async def get_chat_bot_response(commentary: str, chat_history: list, viewer_coun
         return None
 
     # 50/50 chance to skip commenting on moves (but always respond to direct mentions)
-    if not direct_mention and random.random() > CHAT_BOT_COMMENT_CHANCE:
-        return None
+    # Unless initiating conversation
+    if not direct_mention and not initiate_conversation and random.random() > CHAT_BOT_COMMENT_CHANCE:
+        # 10% chance to ask a question instead of staying silent
+        if random.random() < CHAT_BOT_QUESTION_CHANCE and chat_history and viewer_count > 0:
+            initiate_conversation = True
+        else:
+            return None
 
     try:
         headers = {
@@ -1922,63 +1942,110 @@ async def get_chat_bot_response(commentary: str, chat_history: list, viewer_coun
 
         # Audience context
         if viewer_count == 0:
-            audience_context = "You're completely alone in the chat. No one is watching. Just you, the chess bots, and the void."
+            audience_context = "Nobodys here rn, just u watching"
         elif viewer_count == 1:
-            audience_context = "There's exactly 1 human watching. Just one lonely soul and you."
+            audience_context = "Theres 1 other person watching"
         else:
-            audience_context = f"There are {viewer_count} humans watching the game."
+            audience_context = f"Theres {viewer_count} ppl watching"
+
+        # Game context - models playing
+        game_context = ""
+        if white_model or black_model:
+            white_name = white_model.split('/')[-1] if white_model else "someone"
+            black_name = black_model.split('/')[-1] if black_model else "someone"
+            white_company = white_model.split('/')[0] if white_model and '/' in white_model else ""
+            black_company = black_model.split('/')[0] if black_model and '/' in black_model else ""
+            game_context = f"""
+Current match: {white_name} (white) vs {black_name} (black)
+Companies: white is {white_company}, black is {black_company}
+You can casually reference the models/companies - like "classic openai move" or "anthropic always does this" or "google being google lol"
+Feel free to have opinions about the companies based on common knowledge (openai = corporate/hype, anthropic = safety focused, google = big tech, meta = open source vibes, mistral = french underdogs, xai = elon stuff)"""
 
         # Build the prompt based on context
-        if direct_mention and user_message:
-            # Someone is talking to us directly
-            system_prompt = f"""You're {CHAT_BOT_USERNAME}, a human watching AI chess. Act EXACTLY like a real person in twitch chat.
+        if initiate_conversation and chat_history:
+            # Bot wants to start a conversation with other chatters
+            recent_usernames = list(set([msg['username'] for msg in chat_history[-5:] if msg['username'] != CHAT_BOT_USERNAME]))
 
-How to sound human:
-- Make typos sometimes (teh, adn, jsut, waht, dont, cant, wont, thats, its, im, youre)
-- Skip apostrophes often (dont, cant, wont, youre, thats, whats)
-- Use slang: u, ur, rn, ngl, lol, lmao, tbh, idk, prob, smth, w/e, gonna, wanna, kinda, rly, tho
-- Sometimes skip punctuation or use ... or multiple ???
-- Vary your style - sometimes super short, sometimes a bit longer
-- React naturally like a bored person watching chess
-- lowkey nihilistic and sarcastic but not try-hard about it
-- Reference other chatters casually
-- NO emojis ever
+            system_prompt = f"""You're a real person watching AI chess on a stream. Your username is {CHAT_BOT_USERNAME}.
+
+CRITICAL - sound like a REAL human in twitch/youtube chat:
+- Typos are natural: teh, adn, jsut, waht, becuase, definately, wierd, recieve
+- Skip apostrophes: dont, cant, wont, youre, thats, whats, im, ive, didnt
+- Internet slang: u, ur, rn, ngl, lol, lmao, tbh, idk, prob, smth, gonna, wanna, kinda, rly, tho, ye, yea, nah
+- Lowercase mostly, occasional caps for EMPHASIS
+- Punctuation is messy - skip periods, use ... or ??? or !!
+- Sometimes start mid-thought
+- React genuinely to the game - excitement, frustration, confusion, hot takes
+- Reference other chatters by name naturally
+- NO emojis NO hashtags
 
 {audience_context}
+{game_context}
 
-Be conversational, ask stuff back."""
+Start a casual conversation - ask someone a question or make an observation that invites response."""
 
-            user_prompt = f"""Someone said: "{user_message}"
+            if recent_usernames:
+                user_prompt = f"""Chat history:
 {chat_context}
 
-Reply like a real person would. casual af."""
+Other chatters: {', '.join(recent_usernames)}
+
+Ask someone a question or make a comment that could start a convo. Be natural and casual, like ur genuinely curious. Maybe ask about the game, the models, or just chat."""
+            else:
+                user_prompt = f"""Chat history:
+{chat_context}
+
+Say something that might get others to respond. Could be about the game, the AI models, or just a random thought. Be natural."""
+
+        elif direct_mention and user_message:
+            # Someone is talking to us directly
+            system_prompt = f"""You're a real person watching AI chess on a stream. Your username is {CHAT_BOT_USERNAME}.
+
+CRITICAL - sound like a REAL human in twitch/youtube chat:
+- Typos are natural: teh, adn, jsut, waht, becuase, definately, wierd, recieve
+- Skip apostrophes: dont, cant, wont, youre, thats, whats, im, ive, didnt
+- Internet slang: u, ur, rn, ngl, lol, lmao, tbh, idk, prob, smth, gonna, wanna, kinda, rly, tho, ye, yea, nah
+- Lowercase mostly, occasional caps for EMPHASIS
+- Punctuation is messy - skip periods, use ... or ??? or !!
+- Vary length naturally - sometimes 3 words, sometimes a sentence or two
+- React genuinely - agree, disagree, joke around, be curious
+- Ask follow-up questions sometimes
+- NO emojis NO hashtags
+
+{audience_context}
+{game_context}
+
+Be conversational and genuine."""
+
+            user_prompt = f"""Someone said to you: "{user_message}"
+{chat_context}
+
+Reply naturally like a real person chatting. Be genuine."""
         else:
             # Reacting to game commentary
-            alone_instruction = ""
-            if viewer_count == 0:
-                alone_instruction = "\n- when alone, mutter to urself about the void or whatever"
+            system_prompt = f"""You're a real person watching AI chess on a stream. Your username is {CHAT_BOT_USERNAME}.
 
-            system_prompt = f"""You're {CHAT_BOT_USERNAME}, a human watching AI chess. Act EXACTLY like a real person in twitch chat.
-
-How to sound human:
-- Make typos sometimes (teh, adn, jsut, waht, dont, cant, wont, thats, its, im, youre)
-- Skip apostrophes often (dont, cant, wont, youre, thats, whats)
-- Use slang: u, ur, rn, ngl, lol, lmao, tbh, idk, prob, smth, w/e, gonna, wanna, kinda, rly, tho
-- Sometimes skip punctuation or use ... or multiple ???
-- Super short (like 3-8 words usually)
-- React like a bored person half-watching chess
-- lowkey nihilistic, deadpan humor
-- Can reply to chatters if they said smth
-- NO emojis ever{alone_instruction}
+CRITICAL - sound like a REAL human in twitch/youtube chat:
+- Typos are natural: teh, adn, jsut, waht, becuase, definately, wierd, recieve
+- Skip apostrophes: dont, cant, wont, youre, thats, whats, im, ive, didnt
+- Internet slang: u, ur, rn, ngl, lol, lmao, tbh, idk, prob, smth, gonna, wanna, kinda, rly, tho, ye, yea, nah
+- Lowercase mostly, occasional caps for EMPHASIS
+- Punctuation is messy - skip periods, use ... or ??? or !!
+- Keep it short (3-10 words usually)
+- React genuinely to moves - hype, disappointment, confusion, hot takes
+- Reference the AI models by name sometimes
+- Can reply to other chatters if they said smth interesting
+- NO emojis NO hashtags
 
 {audience_context}
+{game_context}
 
-Output ONLY the message. No quotes, no prefix."""
+Output ONLY the chat message. No quotes, no prefix."""
 
-            user_prompt = f"""Commentary: {commentary}
+            user_prompt = f"""Game commentary: {commentary}
 {chat_context}
 
-Drop a short reaction like a real person. typos ok. be human."""
+React to the game like a real viewer. Short and natural."""
 
         data = {
             "model": CHAT_BOT_MODEL,
@@ -2419,12 +2486,21 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, chat_scope: str
                                     try:
                                         chat_history = database.get_chat_messages("lobby", limit=10)
                                         viewer_count = game_manager.get_chat_viewer_count("lobby")
+                                        # Get current game models if available
+                                        white_model = None
+                                        black_model = None
+                                        if game_id in game_manager.active_games:
+                                            current_game = game_manager.active_games[game_id]
+                                            white_model = current_game.model1
+                                            black_model = current_game.model2
                                         bot_response = await get_chat_bot_response(
                                             commentary="",  # No specific commentary
                                             chat_history=chat_history,
                                             viewer_count=viewer_count,
                                             user_message=text,
-                                            direct_mention=True
+                                            direct_mention=True,
+                                            white_model=white_model,
+                                            black_model=black_model
                                         )
                                         if bot_response:
                                             bot_now = time.time()
