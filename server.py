@@ -2223,15 +2223,6 @@ async def get_chat_bot_response(
             recent = chat_history[-8:]
             chat_context = "\n".join([f"{m['username']}: {m['text']}" for m in recent])
 
-        # Game context
-        game_context = ""
-        if white_model or black_model:
-            w = white_model.split('/')[-1] if white_model else "?"
-            b = black_model.split('/')[-1] if black_model else "?"
-            wc = white_model.split('/')[0] if white_model and '/' in white_model else ""
-            bc = black_model.split('/')[0] if black_model and '/' in black_model else ""
-            game_context = f"Match: {w} vs {b} | Companies: {wc} vs {bc}"
-
         # Get recent messages to avoid repetition
         recent_bot_msgs = bot.get("recent_messages", [])[-5:]
         repetition_warning = ""
@@ -2241,49 +2232,48 @@ async def get_chat_bot_response(
         # Simple, open-ended system prompt - Twitch chat style
         system_prompt = f"""You are {bot_name}, watching AI chess on a Twitch-like stream. Reply in 2-5 words max.
 
-{game_context}
+Read the chat and fit in naturally. Match the vibe - hype, skeptical, bored, whatever fits.
+React like a real viewer would. Short, punchy, casual. Comment on moves, trash talk, joke around.
+Don't always mention who's playing - just react to what's happening.{repetition_warning}
 
-Read the chat and fit in naturally. Match the vibe - if chat is hyped, join in. If skeptical, you can be too.
-React like a real viewer would. Short, punchy, casual.{repetition_warning}
-
-NEVER: chess notation, emojis, hashtags, em dashes"""
+NEVER: chess notation, emojis, hashtags, em dashes, model names every message"""
 
         # Build user prompt based on context
         if direct_mention and user_message:
-            user_prompt = f"""Chat message to react to: "{user_message}"
+            user_prompt = f"""Someone said: "{user_message}"
 
-Recent chat:
+Chat:
 {chat_context}
 
-React naturally. 2-5 words."""
+Reply naturally. 2-5 words."""
         elif event_type == "game_over":
-            user_prompt = f"""GAME OVER! {commentary}
+            user_prompt = f"""Game just ended.
 
 Chat:
 {chat_context}
 
-React to the result. 2-5 words."""
+React to the ending. 2-5 words."""
         elif event_type in ("blunder", "mistake"):
-            user_prompt = f"""Bad move happened. Commentary: {commentary}
+            user_prompt = f"""Terrible move just happened.
 
 Chat:
 {chat_context}
 
-React briefly. 2-4 words."""
+React. 2-4 words."""
         elif event_type in ("brilliant_move", "good_move"):
-            user_prompt = f"""Good move. Commentary: {commentary}
+            user_prompt = f"""Great move just happened.
 
 Chat:
 {chat_context}
 
 React. 2-4 words."""
         else:
-            user_prompt = f"""Commentary: {commentary}
+            user_prompt = f"""Chess game in progress.
 
 Chat:
 {chat_context}
 
-React or comment. 2-4 words. Sometimes stay quiet - don't force it."""
+Say something or stay quiet. 2-4 words max."""
 
         data = {
             "model": CHAT_BOT_MODEL,
