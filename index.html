@@ -1278,21 +1278,24 @@
             const count = streak.count;
             const type = streak.type;
 
+            // Escape count to prevent XSS
+            const safeCount = escapeHTML(String(count));
+
             if (type === 'W') {
                 // Win streak
                 if (count >= 3) {
-                    return `<span class="text-success font-bold">🔥${count}W</span>`;
+                    return `<span class="text-success font-bold">🔥${safeCount}W</span>`;
                 }
-                return `<span class="text-success">${count}W</span>`;
+                return `<span class="text-success">${safeCount}W</span>`;
             } else if (type === 'L') {
                 // Loss streak
                 if (count >= 3) {
-                    return `<span class="text-error font-bold">💀${count}L</span>`;
+                    return `<span class="text-error font-bold">💀${safeCount}L</span>`;
                 }
-                return `<span class="text-error">${count}L</span>`;
+                return `<span class="text-error">${safeCount}L</span>`;
             } else if (type === 'D') {
                 // Draw streak
-                return `<span class="text-warning">${count}D</span>`;
+                return `<span class="text-warning">${safeCount}D</span>`;
             }
 
             return '-';
@@ -1334,11 +1337,11 @@
 
                 row.innerHTML = `
                     <td>${index + 1}</td>
-                    <td><a href="#" class="link link-hover text-sky-400 hover:text-sky-300 leaderboard-model" data-model="${escapeHTML(entry.model)}">${displayName}</a></td>
-                    <td class="font-bold">${entry.elo}</td>
-                    <td>${entry.games}</td>
-                    <td>${wld}</td>
-                    <td>${entry.win_rate}%</td>
+                    <td><a href="#" class="link link-hover text-sky-400 hover:text-sky-300 leaderboard-model" data-model="${escapeHTML(entry.model)}">${escapeHTML(displayName)}</a></td>
+                    <td class="font-bold">${escapeHTML(String(entry.elo))}</td>
+                    <td>${escapeHTML(String(entry.games))}</td>
+                    <td>${escapeHTML(wld)}</td>
+                    <td>${escapeHTML(String(entry.win_rate))}%</td>
                     <td>${streakHtml}</td>
                 `;
 
@@ -1523,7 +1526,13 @@
 
             // Message received handler
             socket.onmessage = (event) => {
-                const message = JSON.parse(event.data);
+                let message;
+                try {
+                    message = JSON.parse(event.data);
+                } catch (e) {
+                    console.error('Failed to parse WebSocket message:', e);
+                    return;
+                }
                 log("WebSocket message received: " + message.type);
 
                 // Validate message is for current game
@@ -1594,10 +1603,17 @@
                     // Queue update if animation is in progress
                     if (animatingPiece) {
                         console.log('⏸️ Queueing game_state update - move animation in progress');
+                        let waitAttempts = 0;
+                        const maxWaitAttempts = 100; // 5 seconds max (100 * 50ms)
                         const waitForAnimation = () => {
-                            if (animatingPiece) {
+                            waitAttempts++;
+                            if (animatingPiece && waitAttempts < maxWaitAttempts) {
                                 setTimeout(waitForAnimation, 50);
                             } else {
+                                if (waitAttempts >= maxWaitAttempts) {
+                                    console.warn('⚠️ Animation wait timeout, forcing update');
+                                    animatingPiece = null; // Force clear
+                                }
                                 console.log('▶️ Applying queued game_state update');
                                 updateGameState(message.data);
                             }

@@ -80,8 +80,18 @@ app = FastAPI(title="AI Chess Arena")
 
 
 # Read available models from models.txt and normalize IDs (remove leading slashes)
-with open("models.txt", "r") as f:
-    MODELS = [line.strip().lstrip('/') for line in f if line.strip()]
+try:
+    with open("models.txt", "r") as f:
+        MODELS = [line.strip().lstrip('/') for line in f if line.strip()]
+    if not MODELS:
+        logger.warning("models.txt is empty, using fallback models")
+        MODELS = ["openai/gpt-4o-mini", "anthropic/claude-3-haiku"]
+except FileNotFoundError:
+    logger.warning("models.txt not found, using fallback models")
+    MODELS = ["openai/gpt-4o-mini", "anthropic/claude-3-haiku"]
+except Exception as e:
+    logger.error(f"Error reading models.txt: {e}, using fallback models")
+    MODELS = ["openai/gpt-4o-mini", "anthropic/claude-3-haiku"]
 
 # Track which models support vision/image input
 VISION_MODELS = set()
@@ -737,7 +747,8 @@ class GameManager:
         """Broadcast a message to all clients in a chat scope"""
         if chat_scope in self.chat_connections:
             disconnected = []
-            for connection in self.chat_connections[chat_scope]:
+            # Iterate over a copy to avoid modification during iteration
+            for connection in list(self.chat_connections[chat_scope]):
                 try:
                     await connection.send_json(message)
                 except Exception as e:
@@ -749,13 +760,14 @@ class GameManager:
         """Broadcast a message to all clients connected to a game"""
         if game_id in self.connections:
             disconnected = []
-            for connection in self.connections[game_id]:
+            # Iterate over a copy to avoid modification during iteration
+            for connection in list(self.connections[game_id]):
                 try:
                     await connection.send_json(message)
                 except Exception as e:
                     logger.warning(f"Error broadcasting to client: {e}")
                     disconnected.append(connection)
-            
+
             # Clean up disconnected clients
             for conn in disconnected:
                 await self.disconnect_and_broadcast(conn, game_id)
@@ -1055,7 +1067,8 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
                                 san_move = game.board.san(uci_move)
                                 uci_move_str = interpreted_move
                                 move_success = game.apply_move(interpreted_move)
-                        except: pass
+                        except ValueError:
+                            pass  # Invalid UCI format, try SAN next
 
                     if not move_success:
                         # Try SAN
@@ -1347,8 +1360,10 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
                     )
                     self.save_result(result, game)
 
-            # Remove game
+            # Remove game and clean up task reference
             del self.active_games[game_id]
+            if game_id in self.game_tasks:
+                del self.game_tasks[game_id]
     
     def get_leaderboard(self, min_games: int = 0) -> List[Dict[str, Any]]:
         """Generate a leaderboard based on game results"""
@@ -2023,8 +2038,8 @@ Your move:
                     error_msg = error_data.get("error", {}).get("message", "")
                     if "model" in error_msg.lower():
                         logger.error(f"Model-related error: {error_msg}")
-                except:
-                    pass
+                except (ValueError, KeyError):
+                    pass  # Failed to parse error response
             
             if attempt < max_retries:
                 await asyncio.sleep(1.5)  # Slightly longer pause before retry
