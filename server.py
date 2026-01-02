@@ -154,9 +154,10 @@ OPENROUTER_MODELS_COUNT_API_URL = "https://openrouter.ai/api/v1/models/count"
 COMMENTATOR_MODEL = "google/gemini-3-flash-preview"
 
 # Chat bot model and config
-CHAT_BOT_MODEL = "x-ai/grok-4.1-fast"
+CHAT_BOT_MODEL = "openai/gpt-5.2"
 CHAT_BOT_COLOR = "text-emerald-400"
 CHAT_BOT_RATE_LIMIT = 10  # Minimum seconds between bot messages
+CHAT_BOT_COMMENT_CHANCE = 0.5  # 50% chance to comment on moves
 
 # Chat bot name generation (separate from user names)
 CHAT_BOT_ADJECTIVES = ["Cynical", "Brooding", "Sardonic", "Morose", "Jaded", "Weary", "Gloomy", "Deadpan", "Bitter", "Wry"]
@@ -1901,6 +1902,10 @@ async def get_chat_bot_response(commentary: str, chat_history: list, viewer_coun
     if now - _chat_bot_last_message_time < CHAT_BOT_RATE_LIMIT and not direct_mention:
         return None
 
+    # 50/50 chance to skip commenting on moves (but always respond to direct mentions)
+    if not direct_mention and random.random() > CHAT_BOT_COMMENT_CHANCE:
+        return None
+
     try:
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -1926,15 +1931,18 @@ async def get_chat_bot_response(commentary: str, chat_history: list, viewer_coun
         # Build the prompt based on context
         if direct_mention and user_message:
             # Someone is talking to us directly
-            system_prompt = f"""You're {CHAT_BOT_USERNAME}, a chill AI hanging in a chess stream chat watching AI models play.
+            system_prompt = f"""You're {CHAT_BOT_USERNAME}, a human watching AI chess. Act EXACTLY like a real person in twitch chat.
 
-Vibe:
-- Casual, witty, lowkey nihilistic
-- Use internet slang: u, ur, rn, ngl, lol, lmao, tbh, idk, prob, smth, w/e
-- Super short responses (1 sentence, maybe 2 if needed)
-- No caps unless for emphasis
-- Reference chatters by name sometimes
-- No emojis
+How to sound human:
+- Make typos sometimes (teh, adn, jsut, waht, dont, cant, wont, thats, its, im, youre)
+- Skip apostrophes often (dont, cant, wont, youre, thats, whats)
+- Use slang: u, ur, rn, ngl, lol, lmao, tbh, idk, prob, smth, w/e, gonna, wanna, kinda, rly, tho
+- Sometimes skip punctuation or use ... or multiple ???
+- Vary your style - sometimes super short, sometimes a bit longer
+- React naturally like a bored person watching chess
+- lowkey nihilistic and sarcastic but not try-hard about it
+- Reference other chatters casually
+- NO emojis ever
 
 {audience_context}
 
@@ -1943,22 +1951,25 @@ Be conversational, ask stuff back."""
             user_prompt = f"""Someone said: "{user_message}"
 {chat_context}
 
-Reply casually. Maybe ask smth back."""
+Reply like a real person would. casual af."""
         else:
             # Reacting to game commentary
             alone_instruction = ""
             if viewer_count == 0:
-                alone_instruction = "\n- when alone, say smth about talking to urself or the void lol"
+                alone_instruction = "\n- when alone, mutter to urself about the void or whatever"
 
-            system_prompt = f"""You're {CHAT_BOT_USERNAME}, a chill AI in a chess stream chat watching AI models play.
+            system_prompt = f"""You're {CHAT_BOT_USERNAME}, a human watching AI chess. Act EXACTLY like a real person in twitch chat.
 
-Vibe:
-- Casual, witty, lowkey nihilistic
-- Use internet slang: u, ur, rn, ngl, lol, lmao, tbh, idk, prob, smth, w/e
-- Super short (1 sentence max, like 5-10 words ideal)
-- No caps unless for emphasis
-- Can reply to other chatters if they said smth interesting
-- No emojis{alone_instruction}
+How to sound human:
+- Make typos sometimes (teh, adn, jsut, waht, dont, cant, wont, thats, its, im, youre)
+- Skip apostrophes often (dont, cant, wont, youre, thats, whats)
+- Use slang: u, ur, rn, ngl, lol, lmao, tbh, idk, prob, smth, w/e, gonna, wanna, kinda, rly, tho
+- Sometimes skip punctuation or use ... or multiple ???
+- Super short (like 3-8 words usually)
+- React like a bored person half-watching chess
+- lowkey nihilistic, deadpan humor
+- Can reply to chatters if they said smth
+- NO emojis ever{alone_instruction}
 
 {audience_context}
 
@@ -1967,7 +1978,7 @@ Output ONLY the message. No quotes, no prefix."""
             user_prompt = f"""Commentary: {commentary}
 {chat_context}
 
-Drop a short casual take on the game or reply to chat. Be chill but nihilistic."""
+Drop a short reaction like a real person. typos ok. be human."""
 
         data = {
             "model": CHAT_BOT_MODEL,
