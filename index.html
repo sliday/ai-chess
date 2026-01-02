@@ -783,9 +783,32 @@
 
             // Check for URL game parameter - join specific game (highest priority)
             if (urlGameId) {
-                console.log("🔗 Joining shared game:", urlGameId);
-                currentGameId = urlGameId;
-                connectWebSocket(urlGameId);
+                console.log("🔗 Checking shared game:", urlGameId);
+                try {
+                    const res = await fetch(`/game_status/${urlGameId}`);
+                    const status = await res.json();
+                    if (status.exists && status.status !== 'finished') {
+                        // Game exists and is in progress - join it
+                        console.log("✅ Joining active game:", urlGameId);
+                        currentGameId = urlGameId;
+                        connectWebSocket(urlGameId);
+                    } else if (status.exists && status.status === 'finished') {
+                        // Game finished - show message and join autonomous game
+                        console.log("🏁 Shared game already finished, joining live game");
+                        document.getElementById('commentary').innerHTML =
+                            `<span class="text-warning">Shared game has ended. Joining live game...</span>`;
+                        setTimeout(() => startGame(), 1500);
+                    } else {
+                        // Game doesn't exist
+                        console.log("❌ Shared game not found, joining live game");
+                        document.getElementById('commentary').innerHTML =
+                            `<span class="text-error">Game not found. Joining live game...</span>`;
+                        setTimeout(() => startGame(), 1500);
+                    }
+                } catch (err) {
+                    console.error("Error checking game status:", err);
+                    startGame();
+                }
             }
             // Check for URL model parameter - create new game with specific models
             else if (urlSelectedModel || urlSelectedModel2) {
