@@ -102,17 +102,17 @@ def init_db():
             # Add color column if missing (migration for existing databases)
             try:
                 cursor.execute('ALTER TABLE chat_messages ADD COLUMN color TEXT DEFAULT "text-gray-500"')
-            except:
+            except sqlite3.OperationalError:
                 pass  # Column already exists
 
             # Add cost columns to games table (migration for existing databases)
             try:
                 cursor.execute('ALTER TABLE games ADD COLUMN cost_white REAL DEFAULT 0')
-            except:
+            except sqlite3.OperationalError:
                 pass  # Column already exists
             try:
                 cursor.execute('ALTER TABLE games ADD COLUMN cost_black REAL DEFAULT 0')
-            except:
+            except sqlite3.OperationalError:
                 pass  # Column already exists
 
             # Predictions table for viewer predictions
@@ -635,7 +635,7 @@ def cleanup_old_chat_messages(days: int = 7) -> int:
     """
     import time
     try:
-        with get_connection() as conn:
+        with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
             cutoff = time.time() - (days * 24 * 60 * 60)
             cursor.execute('DELETE FROM chat_messages WHERE timestamp < ?', (cutoff,))

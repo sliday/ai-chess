@@ -100,7 +100,7 @@ async def fetch_models_from_openrouter():
                 OPENROUTER_MODELS_API_URL,
                 headers={
                     "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "HTTP-Referer": "https://ai-chess.example.com",
+                    "HTTP-Referer": HTTP_REFERER,
                     "X-Title": "AI Chess Arena"
                 }
             )
@@ -149,6 +149,7 @@ if not OPENROUTER_API_KEY:
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODELS_API_URL = "https://openrouter.ai/api/v1/models"
 OPENROUTER_MODELS_COUNT_API_URL = "https://openrouter.ai/api/v1/models/count"
+HTTP_REFERER = "https://aichess.co"
 
 # Commentator model
 COMMENTATOR_MODEL = "google/gemini-3-flash-preview"
@@ -172,14 +173,14 @@ CHAT_BOT_MODEL = "openai/gpt-5.2"
 
 # Event-based probabilities for chat bots
 CHAT_BOT_PROBABILITIES = {
-    "normal_move": 0.2,      # 20% chance on regular moves
-    "good_move": 0.4,        # 40% on ! moves
-    "brilliant_move": 0.7,   # 70% on !! moves
-    "mistake": 0.5,          # 50% on ? moves
-    "blunder": 0.8,          # 80% on ?? moves
-    "game_over": 0.9,        # 90% on game end
-    "chat_response": 0.5,    # 50% to respond to chat (when not mentioned)
-    "question_initiate": 0.1   # 10% to ask random question
+    "normal_move": 0.4,      # 40% chance on regular moves (was 20%)
+    "good_move": 0.6,        # 60% on ! moves (was 40%)
+    "brilliant_move": 0.85,  # 85% on !! moves (was 70%)
+    "mistake": 0.7,          # 70% on ? moves (was 50%)
+    "blunder": 0.9,          # 90% on ?? moves (was 80%)
+    "game_over": 0.95,       # 95% on game end (was 90%)
+    "chat_response": 0.6,    # 60% to respond to chat (was 50%)
+    "question_initiate": 0.15  # 15% to ask random question (was 10%)
 }
 
 # Chat bot name pools (noun + matching emoji pairs)
@@ -207,7 +208,7 @@ _bot1_name, _bot1_color = generate_chat_bot_name()
 CHAT_BOT_1 = {
     "username": _bot1_name,
     "color": _bot1_color,
-    "rate_limit": 15,
+    "rate_limit": 8,  # Reduced from 15 for more activity
     "activity_multiplier": 1.0,
     "last_message_time": 0,
     "recent_messages": [],  # Track last 5 to avoid repetition
@@ -225,8 +226,8 @@ while _bot2_color == _bot1_color:
 CHAT_BOT_2 = {
     "username": _bot2_name,
     "color": _bot2_color,
-    "rate_limit": 20,
-    "activity_multiplier": 0.6,
+    "rate_limit": 12,  # Reduced from 20 for more activity
+    "activity_multiplier": 0.8,  # Increased from 0.6 for more activity
     "last_message_time": 0,
     "recent_messages": [],  # Track last 5 to avoid repetition
     "personality": "skeptic",
@@ -760,7 +761,7 @@ class GameManager:
             
             # Clean up disconnected clients
             for conn in disconnected:
-                self.disconnect(conn, game_id)
+                await self.disconnect_and_broadcast(conn, game_id)
 
     async def _game_loop(self, game_id: str):
         """Main game loop running in background"""
@@ -1609,7 +1610,7 @@ async def interpret_move(raw_move: str, board_state: str, current_player: int = 
     
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "HTTP-Referer": "https://ai-chess-arena.example.com",
+        "HTTP-Referer": HTTP_REFERER,
         "Content-Type": "application/json"
     }
     
@@ -1734,7 +1735,7 @@ async def call_model(model: str, prompt: str, max_retries: int = MAX_API_RETRIES
     # Standard headers required by OpenRouter
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "HTTP-Referer": "https://ai-chess-arena.example.com",
+        "HTTP-Referer": HTTP_REFERER,
         "Content-Type": "application/json"
     }
     
@@ -1946,7 +1947,7 @@ async def generate_friendly_game_over_reason(reason: str, winner_model: str, res
     
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "HTTP-Referer": "https://ai-chess-arena.example.com",
+        "HTTP-Referer": HTTP_REFERER,
         "Content-Type": "application/json"
     }
     
@@ -2075,7 +2076,7 @@ async def get_chat_bot_response(
     try:
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "HTTP-Referer": "https://aichess.co",
+            "HTTP-Referer": HTTP_REFERER,
             "Content-Type": "application/json"
         }
 
@@ -2248,7 +2249,7 @@ async def _fetch_commentary(board_state: str, last_move: str, moves_history: lis
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "HTTP-Referer": "https://ai-chess-arena.example.com",
+        "HTTP-Referer": HTTP_REFERER,
         "Content-Type": "application/json"
     }
 
@@ -2396,7 +2397,7 @@ async def get_models_count():
                 OPENROUTER_MODELS_COUNT_API_URL,
                 headers={
                     "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "HTTP-Referer": "https://ai-chess.example.com",
+                    "HTTP-Referer": HTTP_REFERER,
                     "X-Title": "AI Chess Arena"
                 }
             )
