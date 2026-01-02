@@ -896,12 +896,12 @@ No intro, no outro, only your next move in proper UCI format (e.g., "e2e4" for m
                     else:
                         game.cost_model2 += _last_move_cost
                     _last_move_cost = 0.0  # Reset after tracking
-                
+
                 if not raw_move:
-                    logger.error(f"Failed to get move from {current_model}")
+                    logger.error(f"Model {current_model} timed out - forfeiting")
                     game.status = "finished"
                     game.winner = 1 - game.current_player
-                    game.reason = "model_error"
+                    game.reason = "timeout_forfeit"
                     break
                 
                 # ============================================================
@@ -1189,7 +1189,9 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
 
             # Start new autonomous game after delay (only if this was the autonomous game)
             if is_autonomous:
-                await asyncio.sleep(10)
+                # Shorter delay for timeouts/forfeits to keep things moving
+                delay = 3 if game.reason in ("timeout_forfeit", "model_error") else 10
+                await asyncio.sleep(delay)
                 self.start_autonomous_game()
             
         except Exception as e:
@@ -1957,6 +1959,8 @@ async def generate_friendly_game_over_reason(reason: str, winner_model: str, res
         explanation_prompt = f"Explain why {loser_model} failed to make a valid chess move (friendly explanation for non-experts)."
     elif reason == "illegal_move":
         explanation_prompt = f"Explain why {loser_model} attempted an illegal chess move (friendly explanation for non-experts)."
+    elif reason == "timeout_forfeit":
+        explanation_prompt = f"Explain that {loser_model} took too long to respond and forfeited the game. Keep it brief and friendly."
     elif reason == "checkmate":
         explanation_prompt = "Describe the victory by checkmate in fun, simple terms."
     elif reason == "reached_move_limit":
