@@ -1600,12 +1600,36 @@
          * Append a chat message to the chat panel
          * @param {Object} msg - Message with username, text, timestamp
          */
+        // Tailwind-safe colors for chat usernames (500/600 variants)
+        const CHAT_COLORS = [
+            'text-red-500', 'text-orange-500', 'text-amber-600', 'text-yellow-600',
+            'text-lime-600', 'text-green-600', 'text-emerald-500', 'text-teal-500',
+            'text-cyan-600', 'text-sky-500', 'text-blue-500', 'text-indigo-500',
+            'text-violet-500', 'text-purple-500', 'text-fuchsia-500', 'text-pink-500'
+        ];
+        const usernameColorCache = {};
+
+        /**
+         * Get a consistent color for a username (hash-based)
+         */
+        function getUsernameColor(username) {
+            if (usernameColorCache[username]) return usernameColorCache[username];
+            let hash = 0;
+            for (let i = 0; i < username.length; i++) {
+                hash = ((hash << 5) - hash) + username.charCodeAt(i);
+                hash |= 0;
+            }
+            const color = CHAT_COLORS[Math.abs(hash) % CHAT_COLORS.length];
+            usernameColorCache[username] = color;
+            return color;
+        }
+
         function appendChatMessage(msg) {
             const chat = document.getElementById('chatMessages');
             const isMe = msg.username === myUsername;
+            const colorClass = isMe ? 'text-primary' : getUsernameColor(msg.username);
             const div = document.createElement('div');
-            div.className = isMe ? 'text-primary' : '';
-            div.innerHTML = `<b>${escapeHTML(msg.username)}:</b> ${escapeHTML(msg.text)}`;
+            div.innerHTML = `<b class="${colorClass}">${escapeHTML(msg.username)}:</b> ${escapeHTML(msg.text)}`;
             chat.appendChild(div);
             chat.scrollTop = chat.scrollHeight;
         }
