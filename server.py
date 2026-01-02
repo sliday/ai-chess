@@ -169,19 +169,19 @@ MODEL_BLACKLIST = {
 }
 
 # Chat bot model and config
-CHAT_BOT_MODEL = "openai/gpt-5.2"
+CHAT_BOT_MODEL = "google/gemini-3-flash-preview"
 
 # Event-based probabilities for chat bots
 CHAT_BOT_PROBABILITIES = {
-    "normal_move": 0.5,      # 50% chance on regular moves (was 40%)
-    "good_move": 0.75,       # 75% on ! moves (was 60%)
-    "brilliant_move": 0.95,  # 95% on !! moves (was 85%)
-    "mistake": 0.8,          # 80% on ? moves (was 70%)
-    "blunder": 0.95,         # 95% on ?? moves (was 90%)
-    "game_over": 1.0,        # 100% on game end - always react!
-    "chat_response": 0.7,    # 70% to respond to interesting chat (was 60%)
-    "question_response": 0.95, # 95% to respond to user questions (was 90%)
-    "question_initiate": 0.2   # 20% to ask random question (was 15%)
+    "normal_move": 0.15,     # 15% chance on regular moves
+    "good_move": 0.3,        # 30% on ! moves
+    "brilliant_move": 0.6,   # 60% on !! moves
+    "mistake": 0.4,          # 40% on ? moves
+    "blunder": 0.7,          # 70% on ?? moves
+    "game_over": 0.8,        # 80% on game end
+    "chat_response": 0.4,    # 40% to respond to interesting chat
+    "question_response": 0.8, # 80% to respond to user questions
+    "question_initiate": 0.1   # 10% to ask random question
 }
 
 # Chat bot name pools (noun + matching emoji pairs)
@@ -209,8 +209,8 @@ _bot1_name, _bot1_color = generate_chat_bot_name()
 CHAT_BOT_1 = {
     "username": _bot1_name,
     "color": _bot1_color,
-    "rate_limit": 5,  # 5 seconds between messages
-    "activity_multiplier": 1.2,
+    "rate_limit": 8,  # 8 seconds between messages
+    "activity_multiplier": 1.0,
     "last_message_time": 0,
     "recent_messages": [],  # Track last 5 to avoid repetition
     "personality": "hype",
@@ -227,8 +227,8 @@ while _bot2_color == _bot1_color:
 CHAT_BOT_2 = {
     "username": _bot2_name,
     "color": _bot2_color,
-    "rate_limit": 8,  # 8 seconds between messages
-    "activity_multiplier": 1.0,
+    "rate_limit": 12,  # 12 seconds between messages
+    "activity_multiplier": 0.8,
     "last_message_time": 0,
     "recent_messages": [],  # Track last 5 to avoid repetition
     "personality": "skeptic",
@@ -2267,7 +2267,11 @@ React or comment. 2-4 words. Sometimes stay quiet - don't force it."""
             response_data = response.json()
 
             if "choices" in response_data and len(response_data["choices"]) > 0:
-                message = response_data["choices"][0]["message"]["content"].strip()
+                content = response_data["choices"][0]["message"].get("content")
+                if not content:
+                    logger.warning(f"Bot {bot_name} API returned no content: {response_data}")
+                    return None
+                message = content.strip()
                 message = message.strip('"\'')
                 # Remove bot name prefix if model added it
                 if message.lower().startswith(bot_name.lower().split()[0].lower()):

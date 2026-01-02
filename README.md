@@ -63,7 +63,7 @@ Visit `http://localhost:8000` in your browser.
 ## Recent Updates (v1.9.0)
 
 - 🎉 **Game End Reactions**: Chat bots now react to wins/losses with personality-appropriate responses
-- 🔊 **More Active Bots**: Higher probabilities (50% normal, 100% game end), faster cooldowns (5-8s)
+- 🤖 **Chat Bot Model**: Switched to google/gemini-3-flash-preview for reliable responses
 - 🎯 **Improved Modals**: "Start New Game" modal matches game over styling
 - 🧹 **Data Cleanup**: Removed ~1,075 fraudulent short games from free models with inflated Elo
 
