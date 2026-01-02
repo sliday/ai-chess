@@ -297,6 +297,10 @@
                 <span class="hidden sm:inline">HOW IT WORKS</span>
                 <span class="sm:hidden">?</span>
             </button>
+            <button id="shareGameBtn" class="btn btn-sm btn-ghost" title="Copy game link">
+                <span class="hidden sm:inline">🔗 Share</span>
+                <span class="sm:hidden">🔗</span>
+            </button>
             <button id="newGameBtn" class="btn btn-sm btn-primary">New Game</button>
         </div>
     </div>
@@ -588,6 +592,7 @@
         let previousWinner = null;      // Track previous game winner: {model: 'model-name', position: 0 or 1}
         let urlSelectedModel = null;    // Model pre-selected via URL parameter (?model=) - plays as White
         let urlSelectedModel2 = null;   // Second model via URL parameter (?model2=) - plays as Black
+        let urlGameId = null;           // Game ID from URL parameter (?game=) - join specific game
         let autoStartTimer = null;      // Auto-start new game timer
         let autoStartCountdown = 300;   // Countdown seconds (5 minutes = 300s)
 
@@ -660,10 +665,11 @@
         document.addEventListener('DOMContentLoaded', async () => {
             log("AI Chess Arena initializing...");
 
-            // Check for URL model parameters (?model=NAME&model2=NAME)
+            // Check for URL parameters (?model=NAME&model2=NAME&game=ID)
             const urlParams = new URLSearchParams(window.location.search);
             const modelParam = urlParams.get('model');
             const model2Param = urlParams.get('model2');
+            const gameParam = urlParams.get('game');
             if (modelParam) {
                 urlSelectedModel = decodeURIComponent(modelParam);
                 console.log("🎯 URL model parameter (White):", urlSelectedModel);
@@ -671,6 +677,10 @@
             if (model2Param) {
                 urlSelectedModel2 = decodeURIComponent(model2Param);
                 console.log("🎯 URL model2 parameter (Black):", urlSelectedModel2);
+            }
+            if (gameParam) {
+                urlGameId = decodeURIComponent(gameParam);
+                console.log("🎯 URL game parameter:", urlGameId);
             }
 
             // Check if p5.js is loaded
@@ -725,6 +735,26 @@
                 document.getElementById('howItWorksModal').showModal();
             });
 
+            // Share game button - copy game URL to clipboard
+            document.getElementById('shareGameBtn').addEventListener('click', async () => {
+                if (!currentGameId) {
+                    alert('No active game to share');
+                    return;
+                }
+                const shareUrl = `${window.location.origin}?game=${currentGameId}`;
+                try {
+                    await navigator.clipboard.writeText(shareUrl);
+                    const btn = document.getElementById('shareGameBtn');
+                    const originalHTML = btn.innerHTML;
+                    btn.innerHTML = '<span class="hidden sm:inline">✅ Copied!</span><span class="sm:hidden">✅</span>';
+                    setTimeout(() => { btn.innerHTML = originalHTML; }, 2000);
+                    console.log('📋 Game URL copied:', shareUrl);
+                } catch (err) {
+                    // Fallback for older browsers
+                    prompt('Copy this link to share the game:', shareUrl);
+                }
+            });
+
             // Set event listeners for remaining buttons
             if (document.getElementById('startGameBtn')) {
                 document.getElementById('startGameBtn').addEventListener('click', startGame);
@@ -751,8 +781,14 @@
                 loadLeaderboard(minGames);
             });
 
-            // Check for URL model parameter - takes priority
-            if (urlSelectedModel || urlSelectedModel2) {
+            // Check for URL game parameter - join specific game (highest priority)
+            if (urlGameId) {
+                console.log("🔗 Joining shared game:", urlGameId);
+                currentGameId = urlGameId;
+                connectWebSocket(urlGameId);
+            }
+            // Check for URL model parameter - create new game with specific models
+            else if (urlSelectedModel || urlSelectedModel2) {
                 console.log("🎯 Starting game with pre-selected model(s):", urlSelectedModel, urlSelectedModel2);
                 localStorage.removeItem('currentGameId'); // Clear any saved game
                 startGame(true, urlSelectedModel, urlSelectedModel2); // Force new game with selected model(s)
