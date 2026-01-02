@@ -640,6 +640,7 @@
         let lastMove = null;            // Store the last move made for highlighting
         let gameBoard = [];             // Current state of the chess board
         let boardHistory = [];          // History of all board states for replay
+        const MAX_BOARD_HISTORY = 500;  // Prevent unbounded memory growth
         let waitingForMoveTimer = null; // Timer for showing skip button
         let waitingStartTime = null;    // When we started waiting for a move
         let waitingMessageCount = 0;    // Count consecutive "Waiting for" messages
@@ -695,6 +696,7 @@
         let currentMoveAnnotation = null; // Current move annotation badge: {square: 'e4', symbol: '!!', color: [r,g,b], fadeAlpha: 255}
         let pendingMoveAnnotation = null; // Annotation waiting for animation to complete
         let animationQueue = [];          // Queue of pending animations (proper chaining)
+        const MAX_ANIMATION_QUEUE = 50;   // Prevent unbounded queue growth
         let isPageVisible = true;         // Track page visibility for animation handling
 
         /**
@@ -1646,8 +1648,12 @@
         function handleWebSocketMessage(message) {
             switch (message.type) {
                 case 'game_state':
-                    // Store the board state in history for replay
+                    // Store the board state in history for replay (bounded)
                     if (!isReplaying && message.data.board) {
+                        // Enforce maximum history size to prevent memory growth
+                        if (boardHistory.length >= MAX_BOARD_HISTORY) {
+                            boardHistory.shift();  // Remove oldest state
+                        }
                         boardHistory.push(JSON.parse(JSON.stringify(message.data.board)));
                         currentHistoryIndex = boardHistory.length - 1;
 
@@ -3344,8 +3350,12 @@
                 return;
             }
 
-            // If animation is already in progress, add to queue
+            // If animation is already in progress, add to queue (bounded)
             if (animatingPiece) {
+                if (animationQueue.length >= MAX_ANIMATION_QUEUE) {
+                    console.warn(`⚠️ Animation queue full (${MAX_ANIMATION_QUEUE}), dropping oldest`);
+                    animationQueue.shift();  // Remove oldest to make room
+                }
                 console.log(`⚠️ Animation in progress, queuing (queue size: ${animationQueue.length})`);
                 animationQueue.push({ fromSquare, toSquare, piece });
                 return;

@@ -53,6 +53,8 @@ DB_FILE = "chess_arena.db"
 
 # Cache for expensive stats queries (TTL: 30 seconds)
 # Reduces database load by 99% (from 1000s/min to ~16/min)
+import threading
+_stats_cache_lock = threading.Lock()
 _stats_cache = {
     "daily": {"data": None, "timestamp": 0, "ttl": 30},
     "weekly": {"data": None, "timestamp": 0, "ttl": 30}
@@ -167,6 +169,10 @@ def get_or_create_elo(model: str) -> int:
 
     Uses INSERT OR IGNORE to handle race conditions where multiple
     processes might try to create the same model simultaneously.
+
+    WARNING: For game results, use save_game_result() which handles
+    Elo updates atomically within a transaction. This standalone function
+    may cause race conditions if used for concurrent Elo updates.
     """
     try:
         with sqlite3.connect(DB_FILE) as conn:
@@ -187,7 +193,12 @@ def get_or_create_elo(model: str) -> int:
         return 1500
 
 def update_elo(model: str, new_elo: int):
-    """Update Elo rating for a model"""
+    """Update Elo rating for a model.
+
+    WARNING: For game results, use save_game_result() which handles
+    Elo updates atomically within a transaction. This standalone function
+    may cause race conditions if used for concurrent Elo updates.
+    """
     try:
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
@@ -421,15 +432,16 @@ def get_statistics(period: str = "daily") -> Dict[str, Any]:
     Returns:
         Dictionary with daily_highlights and weekly_trends
     """
-    # Check cache first
+    # Check cache first (thread-safe)
     cache_key = period if period in ["daily", "weekly"] else "daily"
-    cache_entry = _stats_cache[cache_key]
     current_time = time.time()
 
-    # Return cached data if still valid (within TTL)
-    if cache_entry["data"] is not None and (current_time - cache_entry["timestamp"]) < cache_entry["ttl"]:
-        logger.debug(f"Stats cache HIT for {period} (age: {current_time - cache_entry['timestamp']:.1f}s)")
-        return cache_entry["data"]
+    with _stats_cache_lock:
+        cache_entry = _stats_cache[cache_key]
+        # Return cached data if still valid (within TTL)
+        if cache_entry["data"] is not None and (current_time - cache_entry["timestamp"]) < cache_entry["ttl"]:
+            logger.debug(f"Stats cache HIT for {period} (age: {current_time - cache_entry['timestamp']:.1f}s)")
+            return cache_entry["data"]
 
     logger.debug(f"Stats cache MISS for {period}, querying database...")
 
@@ -562,10 +574,11 @@ def get_statistics(period: str = "daily") -> Dict[str, Any]:
             stats["meta_stats"]["avg_cost_per_game"] = round(result["avg_cost"], 4) if result and result["avg_cost"] else 0
             stats["meta_stats"]["total_cost"] = round(result["total_cost"], 4) if result and result["total_cost"] else 0
 
-            # Cache the result
-            cache_entry["data"] = stats
-            cache_entry["timestamp"] = current_time
-            logger.info(f"Stats cached for {period} (TTL: {cache_entry['ttl']}s)")
+            # Cache the result (thread-safe)
+            with _stats_cache_lock:
+                _stats_cache[cache_key]["data"] = stats
+                _stats_cache[cache_key]["timestamp"] = current_time
+            logger.info(f"Stats cached for {period} (TTL: {_stats_cache[cache_key]['ttl']}s)")
 
             return stats
 
@@ -577,12 +590,12 @@ def get_statistics(period: str = "daily") -> Dict[str, Any]:
         }
 
 def invalidate_stats_cache():
-    """Invalidate the stats cache (call after game completion)"""
-    global _stats_cache
-    _stats_cache["daily"]["data"] = None
-    _stats_cache["daily"]["timestamp"] = 0
-    _stats_cache["weekly"]["data"] = None
-    _stats_cache["weekly"]["timestamp"] = 0
+    """Invalidate the stats cache (call after game completion). Thread-safe."""
+    with _stats_cache_lock:
+        _stats_cache["daily"]["data"] = None
+        _stats_cache["daily"]["timestamp"] = 0
+        _stats_cache["weekly"]["data"] = None
+        _stats_cache["weekly"]["timestamp"] = 0
     logger.debug("Stats cache invalidated")
 
 def get_hourly_stats() -> Dict[str, Any]:

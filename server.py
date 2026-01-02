@@ -222,6 +222,8 @@ def generate_chat_bot_name() -> tuple:
     return f"{adj} {noun} {emoji}", color
 
 # Bot 1
+# NOTE: Bot state (last_message_time, recent_messages) is stored in memory.
+# This works with single-worker deployment. For multi-worker, move state to Redis/database.
 _bot1_name, _bot1_color = generate_chat_bot_name()
 CHAT_BOT_1 = {
     "username": _bot1_name,
@@ -539,6 +541,8 @@ class GameManager:
     """
     def __init__(self):
         """Initialize the game manager"""
+        # Lock for protecting game state modifications
+        self._game_lock = asyncio.Lock()
         # Dictionary of active games, keyed by game_id
         self.active_games: Dict[str, ChessGame] = {}
         # Active game loops
@@ -563,10 +567,32 @@ class GameManager:
         # Boredom mode tracking
         self.last_activity_time: float = time.time()
         self._boredom_task: Optional[asyncio.Task] = None
+        # Track background tasks to prevent memory leaks
+        self._background_tasks: set = set()
 
     def update_activity(self):
         """Update last activity time - call on moves, chat messages, etc."""
         self.last_activity_time = time.time()
+
+    def create_background_task(self, coro, name: str = None):
+        """Create a tracked background task with error handling.
+
+        Tasks are tracked to prevent memory leaks and errors are logged.
+        """
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+
+        def task_done_callback(t):
+            self._background_tasks.discard(t)
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc:
+                task_name = name or "background_task"
+                logger.error(f"Background task '{task_name}' failed: {exc}")
+
+        task.add_done_callback(task_done_callback)
+        return task
 
     def start_boredom_loop(self):
         """Start the boredom check background task"""
@@ -1243,8 +1269,8 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
                     except Exception as e:
                         logger.error(f"Commentary error: {e}")
 
-                # Fire and forget - don't wait for commentary
-                asyncio.create_task(process_commentary())
+                # Fire and forget - don't wait for commentary (tracked for error handling)
+                self.create_background_task(process_commentary(), "process_commentary")
                 
                 # Send final state for this turn
                 await self.broadcast(game_id, {
@@ -1447,29 +1473,36 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
         return self.active_games[game_id]
     
     def end_game(self, game_id: str):
-        """End a game and save results if needed"""
-        game = self.active_games.get(game_id)
-        if game:
-            if game.status == "finished":
-                # Resolve predictions
-                if game.winner is not None:
-                    resolved = database.resolve_predictions(game_id, game.winner)
-                    if resolved > 0:
-                        logger.info(f"Resolved {resolved} predictions for game {game_id}")
+        """End a game and save results if needed.
 
-                if game.winner is not None:
-                    # Save result
-                    result = GameResult(
-                        model1=game.model1,
-                        model2=game.model2,
-                        winner=game.winner,
-                        timestamp=datetime.now().isoformat()
-                    )
-                    self.save_result(result, game)
+        Uses pop() for atomic removal to prevent race conditions where
+        multiple tasks might try to end the same game simultaneously.
+        """
+        # Atomically remove game - returns None if already removed
+        game = self.active_games.pop(game_id, None)
+        if game is None:
+            logger.debug(f"Game {game_id} already ended or doesn't exist")
+            return
 
-            # Remove game and clean up task reference
-            self.active_games.pop(game_id, None)
-            self.game_tasks.pop(game_id, None)
+        if game.status == "finished":
+            # Resolve predictions
+            if game.winner is not None:
+                resolved = database.resolve_predictions(game_id, game.winner)
+                if resolved > 0:
+                    logger.info(f"Resolved {resolved} predictions for game {game_id}")
+
+            if game.winner is not None:
+                # Save result
+                result = GameResult(
+                    model1=game.model1,
+                    model2=game.model2,
+                    winner=game.winner,
+                    timestamp=datetime.now().isoformat()
+                )
+                self.save_result(result, game)
+
+        # Clean up task reference
+        self.game_tasks.pop(game_id, None)
     
     def get_leaderboard(self, min_games: int = 0) -> List[Dict[str, Any]]:
         """Generate a leaderboard based on game results"""
