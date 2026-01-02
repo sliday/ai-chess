@@ -1870,7 +1870,7 @@
             }
 
             // Always update title with current count
-            chatTitle.textContent = `💬 Chat (${count})`;
+            chatTitle.textContent = `Chat (${count})`;
         }
 
         // Update the game state display
@@ -4214,8 +4214,10 @@
         <div class="bg-base-100 shadow-lg rounded-t-lg border border-base-300">
             <!-- Chat Header (clickable to toggle) -->
             <div id="chatHeader" class="flex justify-between items-center p-2 cursor-pointer bg-base-200 rounded-t-lg hover:bg-base-300">
-                <span id="connectionDot" class="w-2 h-2 rounded-full bg-success inline-block mr-1"></span>
-                <span id="chatTitle" class="text-sm font-bold">Chat</span>
+                <div class="flex items-center">
+                    <span id="connectionDot" class="w-2 h-2 rounded-full bg-success inline-block mr-1"></span>
+                    <span id="chatTitle" class="text-sm font-bold">Chat</span>
+                </div>
                 <span id="chatToggleIcon" class="text-xs">▼</span>
             </div>
             <!-- Chat Body (collapsible) -->
