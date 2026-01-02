@@ -191,6 +191,11 @@ Connection: `ws://host/ws/{game_id}`
 - New game starts after 3 seconds (vs 10s for normal games)
 - Friendly explanation generated for viewers
 
+**Model Unavailable Fast-Fail:**
+- 404 "No endpoints found" errors trigger immediate forfeit (no retries)
+- Prevents slow games when models are unavailable due to data policy
+- Model forfeits rather than having fallback play in its place
+
 ## Configuration
 
 **Required Environment:**

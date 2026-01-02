@@ -1010,7 +1010,6 @@ No intro, no outro, only your next move in proper UCI format (e.g., "e2e4" for m
                         legal_moves_hint = ""
                         if retry_count >= 3:
                             # Show 8-10 random legal moves to help the model
-                            import random
                             sample_moves = random.sample(legal_moves_list, min(10, len(legal_moves_list)))
                             legal_moves_hint = f"\nSome valid moves you can play: {', '.join(sample_moves)}"
                             logger.info(f"Providing legal move hints on retry {retry_count}: {sample_moves}")
@@ -2030,7 +2029,18 @@ Your move:
             # Log the response body if it's an HTTP error
             if isinstance(e, httpx.HTTPStatusError) and e.response:
                 logger.error(f"OpenRouter Error Response: {e.response.text}")
-            
+
+                # Fast-fail for 404 "No endpoints found" - model unavailable, forfeit immediately
+                if e.response.status_code == 404:
+                    try:
+                        error_data = e.response.json()
+                        error_msg = error_data.get("error", {}).get("message", "")
+                        if "no endpoints" in error_msg.lower() or "not found" in error_msg.lower():
+                            logger.warning(f"Model {current_model} unavailable (404 - {error_msg}), forfeiting")
+                            return ""  # Forfeit - don't retry unavailable models
+                    except (ValueError, KeyError):
+                        pass
+
             # If there's an HTTP 400 error related to the model parameter, log it specially
             if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 400:
                 try:
@@ -2040,7 +2050,7 @@ Your move:
                         logger.error(f"Model-related error: {error_msg}")
                 except (ValueError, KeyError):
                     pass  # Failed to parse error response
-            
+
             if attempt < max_retries:
                 await asyncio.sleep(1.5)  # Slightly longer pause before retry
                 continue
