@@ -39,6 +39,7 @@ Last Updated: 2025-11-28
 """
 
 import os
+import re
 import random
 import json
 import time
@@ -55,6 +56,22 @@ from pydantic import BaseModel
 import httpx
 import database
 
+# Shared httpx client for connection pooling (created lazily, closed on shutdown)
+_http_client: Optional[httpx.AsyncClient] = None
+
+def get_http_client() -> httpx.AsyncClient:
+    """Get the shared httpx client (creates it if needed)"""
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(timeout=httpx.Timeout(45.0))
+    return _http_client
+
+async def close_http_client():
+    """Close the shared httpx client"""
+    global _http_client
+    if _http_client is not None:
+        await _http_client.aclose()
+        _http_client = None
 
 # Setup enhanced logging for the application (do not override uvicorn's logging)
 logger = logging.getLogger(__name__)
@@ -64,8 +81,8 @@ _formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 _stream_handler = logging.StreamHandler()
 _stream_handler.setFormatter(_formatter)
 logger.addHandler(_stream_handler)
-# File log handler
-_file_handler = logging.FileHandler("game.log")
+# File log handler (with encoding to prevent issues on non-UTF8 systems)
+_file_handler = logging.FileHandler("game.log", encoding="utf-8")
 _file_handler.setFormatter(_formatter)
 logger.addHandler(_file_handler)
 logger.info("AI Chess Arena starting up...")
@@ -105,36 +122,37 @@ async def fetch_models_from_openrouter():
     global VISION_MODELS
     try:
         logger.info("Fetching models from OpenRouter API...")
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                OPENROUTER_MODELS_API_URL,
-                headers={
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "HTTP-Referer": HTTP_REFERER,
-                    "X-Title": "AI Chess Arena"
-                }
-            )
-            response.raise_for_status()
-            data = response.json()
+        client = get_http_client()
+        response = await client.get(
+            OPENROUTER_MODELS_API_URL,
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "HTTP-Referer": HTTP_REFERER,
+                "X-Title": "AI Chess Arena"
+            },
+            timeout=30.0
+        )
+        response.raise_for_status()
+        data = response.json()
 
-            # Extract model IDs and vision capability from the response
-            models = []
-            vision_models = set()
-            if "data" in data:
-                for model in data["data"]:
-                    model_id = model.get("id", "").lstrip('/')
-                    if model_id:
-                        models.append(model_id)
-                        # Check if model supports image input
-                        architecture = model.get("architecture", {})
-                        input_modalities = architecture.get("input_modalities", [])
-                        if "image" in input_modalities:
-                            vision_models.add(model_id)
+        # Extract model IDs and vision capability from the response
+        models = []
+        vision_models = set()
+        if "data" in data:
+            for model in data["data"]:
+                model_id = model.get("id", "").lstrip('/')
+                if model_id:
+                    models.append(model_id)
+                    # Check if model supports image input
+                    architecture = model.get("architecture", {})
+                    input_modalities = architecture.get("input_modalities", [])
+                    if "image" in input_modalities:
+                        vision_models.add(model_id)
 
-            # Update global vision models set
-            VISION_MODELS = vision_models
-            logger.info(f"Fetched {len(models)} models from OpenRouter API ({len(vision_models)} support vision)")
-            return models
+        # Update global vision models set
+        VISION_MODELS = vision_models
+        logger.info(f"Fetched {len(models)} models from OpenRouter API ({len(vision_models)} support vision)")
+        return models
     except Exception as e:
         logger.error(f"Error fetching models from OpenRouter: {e}")
         return None
@@ -597,7 +615,7 @@ class GameManager:
     def start_boredom_loop(self):
         """Start the boredom check background task"""
         if self._boredom_task is None or self._boredom_task.done():
-            self._boredom_task = asyncio.create_task(self._boredom_loop())
+            self._boredom_task = self.create_background_task(self._boredom_loop(), "boredom_loop")
             logger.info("Boredom mode loop started")
 
     async def _boredom_loop(self):
@@ -829,6 +847,9 @@ class GameManager:
                     "type": "viewer_count",
                     "count": actual_viewers + NUM_CHAT_BOTS
                 })
+                # Clean up empty connection lists to prevent memory growth
+                if not game_conns:
+                    del self.connections[game_id]
             except ValueError:
                 pass  # websocket not in list
         # Clean up chat connections
@@ -844,6 +865,9 @@ class GameManager:
                         "type": "chat_viewer_count",
                         "count": actual_count + NUM_CHAT_BOTS
                     })
+                    # Clean up empty chat connection lists
+                    if not chat_conns:
+                        del self.chat_connections[chat_scope]
                 except ValueError:
                     pass  # websocket not in list
         # Clean up other chat metadata
@@ -1649,7 +1673,6 @@ async def interpret_move(raw_move: str, board_state: str, current_player: int = 
 
     # ENHANCED: Try to extract a valid UCI move from unstructured responses
     # Look for patterns like "Here is your move: e2e4" or "My move is e2e4"
-    import re
 
     # Handle spaces in UCI notation (e.g., "a4 a3" → "a4a3")
     space_uci_pattern = r'^([a-h][1-8])\s+([a-h][1-8][qrbn]?)$'
@@ -2820,7 +2843,13 @@ async def get_game_status(game_id: str):
 async def startup_event():
     """Start the autonomous game loop on startup"""
     # Wait a bit for server to start
-    asyncio.create_task(delayed_start())
+    game_manager.create_background_task(delayed_start(), "delayed_start")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on shutdown"""
+    await close_http_client()
+    logger.info("AI Chess Arena shutting down...")
 
 async def delayed_start():
     await asyncio.sleep(2)
@@ -2828,8 +2857,8 @@ async def delayed_start():
     await fetch_models_from_openrouter()
     logger.info(f"Initialized with {len(VISION_MODELS)} vision-capable models")
     game_manager.start_autonomous_game()
-    # Start periodic chat cleanup
-    asyncio.create_task(periodic_chat_cleanup())
+    # Start periodic chat cleanup (tracked for error handling)
+    game_manager.create_background_task(periodic_chat_cleanup(), "periodic_chat_cleanup")
     # Start boredom mode for chat bots
     game_manager.start_boredom_loop()
 
@@ -3041,7 +3070,7 @@ async def websocket_endpoint(
                                     except Exception as bot_err:
                                         logger.error(f"Chat bot response error: {bot_err}")
 
-                                asyncio.create_task(respond_to_user(responding_bot, text))
+                                game_manager.create_background_task(respond_to_user(responding_bot, text), "respond_to_user")
 
                 # Handle prediction
                 elif data.get("type") == "prediction":

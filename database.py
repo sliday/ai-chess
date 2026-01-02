@@ -50,6 +50,7 @@ from typing import List, Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 DB_FILE = "chess_arena.db"
+DB_TIMEOUT = 30.0  # Connection timeout in seconds to prevent indefinite blocking
 
 # Cache for expensive stats queries (TTL: 30 seconds)
 # Reduces database load by 99% (from 1000s/min to ~16/min)
@@ -63,8 +64,11 @@ _stats_cache = {
 def init_db():
     """Initialize the database tables"""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(DB_FILE, timeout=DB_TIMEOUT) as conn:
             cursor = conn.cursor()
+
+            # Enable WAL mode for better read/write concurrency
+            cursor.execute("PRAGMA journal_mode=WAL")
 
             # Games table
             cursor.execute('''
@@ -175,7 +179,7 @@ def get_or_create_elo(model: str) -> int:
     may cause race conditions if used for concurrent Elo updates.
     """
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(DB_FILE, timeout=DB_TIMEOUT) as conn:
             cursor = conn.cursor()
             timestamp = datetime.now().isoformat()
             # Use INSERT OR IGNORE to handle race conditions atomically
@@ -200,7 +204,7 @@ def update_elo(model: str, new_elo: int):
     may cause race conditions if used for concurrent Elo updates.
     """
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(DB_FILE, timeout=DB_TIMEOUT) as conn:
             cursor = conn.cursor()
             timestamp = datetime.now().isoformat()
             cursor.execute(
@@ -295,7 +299,7 @@ def save_game_result(game_id: str, model1: str, model2: str, winner: Optional[in
 def get_current_streak(model: str) -> Dict[str, Any]:
     """Get current win/loss/draw streak for a model"""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(DB_FILE, timeout=DB_TIMEOUT) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
@@ -349,7 +353,7 @@ def get_leaderboard_stats(min_games: int = 0) -> List[Dict[str, Any]]:
     stats = {}
 
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(DB_FILE, timeout=DB_TIMEOUT) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
@@ -446,7 +450,7 @@ def get_statistics(period: str = "daily") -> Dict[str, Any]:
     logger.debug(f"Stats cache MISS for {period}, querying database...")
 
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(DB_FILE, timeout=DB_TIMEOUT) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
@@ -605,7 +609,7 @@ def get_hourly_stats() -> Dict[str, Any]:
         Dictionary with hourly arrays for games, moves, avg_length
     """
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(DB_FILE, timeout=DB_TIMEOUT) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
@@ -657,7 +661,7 @@ def get_hourly_stats() -> Dict[str, Any]:
 def save_chat_message(game_id: str, username: str, message: str, timestamp: float, color: str = "text-gray-500"):
     """Save a chat message to database"""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(DB_FILE, timeout=DB_TIMEOUT) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 'INSERT INTO chat_messages (game_id, username, message, timestamp, color) VALUES (?, ?, ?, ?, ?)',
@@ -670,7 +674,7 @@ def save_chat_message(game_id: str, username: str, message: str, timestamp: floa
 def get_chat_messages(game_id: str, limit: int = 50) -> List[Dict[str, Any]]:
     """Get recent chat messages for a game"""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(DB_FILE, timeout=DB_TIMEOUT) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 'SELECT username, message, timestamp, color FROM chat_messages WHERE game_id = ? ORDER BY timestamp DESC LIMIT ?',
@@ -694,7 +698,7 @@ def cleanup_old_chat_messages(days: int = 7) -> int:
     """
     import time
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(DB_FILE, timeout=DB_TIMEOUT) as conn:
             cursor = conn.cursor()
             cutoff = time.time() - (days * 24 * 60 * 60)
             cursor.execute('DELETE FROM chat_messages WHERE timestamp < ?', (cutoff,))
@@ -719,8 +723,13 @@ def save_prediction(game_id: str, username: str, predicted_winner: int, timestam
     Returns:
         True if saved successfully, False otherwise
     """
+    # Validate predicted_winner
+    if predicted_winner not in (0, 1):
+        logger.warning(f"Invalid predicted_winner value: {predicted_winner}")
+        return False
+
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(DB_FILE, timeout=DB_TIMEOUT) as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT OR REPLACE INTO predictions (game_id, username, predicted_winner, timestamp)
@@ -743,7 +752,7 @@ def get_predictions(game_id: str) -> Dict[str, int]:
         Dictionary with white_predictions and black_predictions counts
     """
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(DB_FILE, timeout=DB_TIMEOUT) as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT predicted_winner, COUNT(*) as count
@@ -777,7 +786,7 @@ def resolve_predictions(game_id: str, actual_winner: int) -> int:
     if actual_winner is None:
         return 0
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(DB_FILE, timeout=DB_TIMEOUT) as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE predictions
@@ -803,7 +812,7 @@ def get_user_prediction(game_id: str, username: str) -> Optional[int]:
         0 for white, 1 for black, or None if no prediction
     """
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(DB_FILE, timeout=DB_TIMEOUT) as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT predicted_winner FROM predictions
