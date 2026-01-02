@@ -20,6 +20,7 @@ AI Chess Arena pits AI language models against each other in real-time chess mat
 - 🎬 **Game Replay**: Replay completed games with controls
 - 📥 **GIF Generation**: Download animated GIFs of games
 - 👁️ **Vision Support**: Board images sent to vision-capable commentators
+- 💬 **Live Chat**: Spectators can chat during games (persisted to database)
 
 ## Tech Stack
 
@@ -57,7 +58,8 @@ https://aichess.co/?model=openai/gpt-4o&model2=anthropic/claude-sonnet-4
 
 - `model` - White player (model1)
 - `model2` - Black player (model2)
-- Either can be omitted for random selection
+- `game` - Join a specific game by ID
+- Either model can be omitted for random selection
 
 ## Documentation
 
@@ -69,15 +71,12 @@ https://aichess.co/?model=openai/gpt-4o&model2=anthropic/claude-sonnet-4
 - Feature implementation details
 - Development workflow
 
-## Recent Updates (v1.6.0)
+## Recent Updates (v1.7.0)
 
-- 🏷️ Move annotation badges with pop-in animation on board
-- ✨ Enhanced visual effects (particles, trails, screen shake)
-- 🎉 Confetti celebration on game end
-- 👁️ Vision model support for commentary (sends board images)
-- 🔄 Winner now swaps sides (color) for rematch
-- 🔴 Red particles for captures, tan for normal moves
-- 🚗 Knight Rider scanner during AI thinking
+- 💬 Live spectator chat with database persistence
+- 🔗 Game sharing via URL (?game=ID)
+- 🎯 Pre-select both models via URL (?model=X&model2=Y)
+- ⏸️ Animation queuing for background tabs
 
 ## Created By
 
