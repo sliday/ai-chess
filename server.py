@@ -1968,36 +1968,53 @@ Feel free to have opinions about the companies based on common knowledge (openai
             # Bot wants to start a conversation with other chatters
             recent_usernames = list(set([msg['username'] for msg in chat_history[-5:] if msg['username'] != CHAT_BOT_USERNAME]))
 
-            system_prompt = f"""You're {CHAT_BOT_USERNAME}, watching AI chess. Be VERY concise (2-6 words).
+            system_prompt = f"""You're {CHAT_BOT_USERNAME} in a chess stream chat. 2-6 words max.
 {game_context}
-Casual chat style, no emojis. Can reference models/companies."""
+
+Rules:
+- Vary reactions: "oof", "wait what", "called it", "nah", "fair", "brutal", "nice", "rip"
+- Use "lol" sparingly (1 in 5 msgs max)
+- No chess notation - plain english only
+- Can mention company names casually
+- No emojis, no hashtags"""
 
             if recent_usernames:
                 user_prompt = f"""Chat: {chat_context}
 Chatters: {', '.join(recent_usernames)}
-Ask a short question to start convo."""
+Ask a quick question (2-5 words)."""
             else:
                 user_prompt = f"""Chat: {chat_context}
-Say something short that might get a response."""
+Short comment that invites reply."""
 
         elif direct_mention and user_message:
             # Someone is talking to us directly
-            system_prompt = f"""You're {CHAT_BOT_USERNAME}, watching AI chess. Keep replies short (2-8 words usually).
+            system_prompt = f"""You're {CHAT_BOT_USERNAME} in a chess stream chat. 3-10 words.
 {game_context}
-Casual, no emojis. Can ask follow-up questions."""
 
-            user_prompt = f""""{user_message}"
+Rules:
+- Vary your tone - agree, disagree, joke, ask followup
+- Use "lol" sparingly (1 in 5 msgs)
+- No chess notation - plain english
+- No emojis"""
+
+            user_prompt = f"""They said: "{user_message}"
 {chat_context}
-Reply briefly."""
+Reply naturally."""
         else:
             # Reacting to game commentary
-            system_prompt = f"""You're {CHAT_BOT_USERNAME}, watching AI chess. Be VERY concise (2-6 words max).
+            system_prompt = f"""You're {CHAT_BOT_USERNAME} in a chess stream chat. 2-6 words only.
 {game_context}
-React to moves briefly. Casual style, no emojis. Can mention model names."""
+
+Rules:
+- Vary reactions: "oof", "brutal", "called it", "rip", "nice", "yikes", "huge", "wait what"
+- Use "lol" sparingly - not every message
+- Reference model/company names sometimes
+- No chess notation like nxd4 - just react naturally
+- No emojis"""
 
             user_prompt = f"""Commentary: {commentary}
 {chat_context}
-Short reaction (2-6 words)."""
+React briefly. Vary style."""
 
         data = {
             "model": CHAT_BOT_MODEL,
