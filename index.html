@@ -1657,8 +1657,10 @@
         }
 
         /**
-         * Update viewer count display - hide chat and badge if only 1 viewer
+         * Update viewer count display - show chat once 2+ viewers, never hide
          */
+        let chatWasShown = false;
+
         function updateViewerCount(count) {
             const chatContainer = document.getElementById('chatContainer');
             const chatTitle = document.getElementById('chatTitle');
@@ -1672,12 +1674,15 @@
                 // Show chat and viewer badge when multiple people
                 chatContainer.classList.remove('hidden');
                 viewersBadge.style.display = '';
-                chatTitle.textContent = `💬 Chat (${count})`;
-            } else {
-                // Hide chat and badge when alone
+                chatWasShown = true;
+            } else if (!chatWasShown) {
+                // Only hide if chat was never shown
                 chatContainer.classList.add('hidden');
                 viewersBadge.style.display = 'none';
             }
+
+            // Always update title with current count
+            chatTitle.textContent = `💬 Chat (${count})`;
         }
 
         // Update the game state display
