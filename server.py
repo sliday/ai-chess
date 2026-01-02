@@ -179,8 +179,9 @@ CHAT_BOT_PROBABILITIES = {
     "mistake": 0.7,          # 70% on ? moves (was 50%)
     "blunder": 0.9,          # 90% on ?? moves (was 80%)
     "game_over": 0.95,       # 95% on game end (was 90%)
-    "chat_response": 0.6,    # 60% to respond to chat (was 50%)
-    "question_initiate": 0.15  # 15% to ask random question (was 10%)
+    "chat_response": 0.6,    # 60% to respond to interesting chat
+    "question_response": 0.9, # 90% to respond to user questions (?)
+    "question_initiate": 0.15  # 15% to ask random question
 }
 
 # Chat bot name pools (noun + matching emoji pairs)
@@ -2751,8 +2752,8 @@ async def websocket_endpoint(
                             is_generic_mention = "bot" in text_lower or "@" in text_lower
                             is_generic_mention = is_generic_mention or text_lower.startswith(("hey ", "yo ", "hi "))
 
-                            # Questions with low probability to trigger response
-                            is_question = "?" in text and random.random() < CHAT_BOT_PROBABILITIES["chat_response"]
+                            # Questions have HIGH probability to trigger response
+                            is_question = "?" in text and random.random() < CHAT_BOT_PROBABILITIES["question_response"]
 
                             # Detect interesting chat content that should trigger reactions
                             prediction_words = ["win", "gonna", "ez", "easy", "gg", "rip", "over", "done", "lost"]
