@@ -134,7 +134,9 @@ python3 -c "import database; database.init_db()"
 
 Connection: `ws://host/ws/{game_id}`
 
-Message types: `game_state`, `move_made`, `commentary_update`, `status_update`, `game_over`
+**Server → Client:** `game_state`, `move_made`, `commentary_update`, `status_update`, `game_over`, `prediction_update`, `chat_message`, `viewer_count`
+
+**Client → Server:** `chat_message`, `prediction`, `skip_game`, `board_image`
 
 ## Key Implementation Details
 
@@ -165,8 +167,20 @@ Message types: `game_state`, `move_made`, `commentary_update`, `status_update`, 
 - Two AI bots with distinct personalities generated on server start
 - Hype Bot: enthusiastic, uses caps for excitement, roots for underdogs
 - Skeptic Bot: dry humor, questions everything, lowkey pessimistic
-- Event-based probabilities: 70% on brilliant moves, 80% on blunders, 90% on game end
+- Event-based probabilities: 85% on brilliant moves, 90% on blunders, 95% on game end
+- Rate limits: 8s (hype bot), 12s (skeptic bot)
 - Each bot has unique name (adjective + animal + emoji) and color
+
+**Skip Stuck Games:**
+- Frontend: "skip stuck game →" link appears after 45s wait AND 3+ status messages
+- Backend: `skip_game` WebSocket message cancels current game task
+- Skipped model forfeits, new game starts after 1 second
+- Prevents free/slow models from blocking gameplay indefinitely
+
+**Timeout Forfeit:**
+- Models that fail to respond after retries forfeit (reason: `timeout_forfeit`)
+- New game starts after 3 seconds (vs 10s for normal games)
+- Friendly explanation generated for viewers
 
 ## Configuration
 

@@ -401,9 +401,9 @@
                                 </div>
                             </div>
                             <div id="commentary" class="commentary text-xs mt-1">Waiting for game to start...</div>
-                            <button id="skipGameBtn" class="btn btn-sm btn-warning mt-2 hidden" onclick="skipGame()">
-                                ⏭️ Skip Stuck Game
-                            </button>
+                            <a id="skipGameBtn" class="text-xs text-gray-400 hover:text-gray-600 cursor-pointer mt-2 hidden inline-block" onclick="skipGame()">
+                                skip stuck game →
+                            </a>
                         </div>
                     </div>
 
@@ -635,6 +635,7 @@
         let boardHistory = [];          // History of all board states for replay
         let waitingForMoveTimer = null; // Timer for showing skip button
         let waitingStartTime = null;    // When we started waiting for a move
+        let waitingMessageCount = 0;    // Count consecutive "Waiting for" messages
         let currentHistoryIndex = -1;   // Current position in history replay
         let isReplaying = false;        // Whether we're in replay mode
         let replayInterval = null;      // Interval for autoplay
@@ -1616,9 +1617,9 @@
                         // Just show the status message
                         document.getElementById('commentary').innerHTML = highlightChessAnnotations(escapeHTML(message.data.message));
                     }
-                    // Start timer to show skip button if waiting for a move
+                    // Track waiting status to show skip button if game appears stuck
                     if (message.data.message && message.data.message.includes('Waiting for')) {
-                        startWaitingTimer();
+                        trackWaitingStatus();
                     }
                     break;
 
@@ -2424,22 +2425,32 @@
             }
         }
 
-        // Start timer to show skip button after 30 seconds of waiting
-        function startWaitingTimer() {
-            clearWaitingTimer();
-            waitingStartTime = Date.now();
-            waitingForMoveTimer = setTimeout(() => {
+        // Track waiting status - only show skip after multiple signs of being stuck
+        function trackWaitingStatus() {
+            waitingMessageCount++;
+
+            // Start timer on first waiting message
+            if (!waitingStartTime) {
+                waitingStartTime = Date.now();
+            }
+
+            // Only show skip button if:
+            // 1. We've been waiting for 45+ seconds AND
+            // 2. We've received 3+ "Waiting for" messages (signs of stuck game)
+            const waitingSeconds = (Date.now() - waitingStartTime) / 1000;
+            if (waitingSeconds >= 45 && waitingMessageCount >= 3) {
                 document.getElementById('skipGameBtn').classList.remove('hidden');
-            }, 30000); // Show after 30 seconds
+            }
         }
 
-        // Clear the waiting timer and hide skip button
+        // Clear the waiting state and hide skip button
         function clearWaitingTimer() {
             if (waitingForMoveTimer) {
                 clearTimeout(waitingForMoveTimer);
                 waitingForMoveTimer = null;
             }
             waitingStartTime = null;
+            waitingMessageCount = 0;
             document.getElementById('skipGameBtn').classList.add('hidden');
         }
 

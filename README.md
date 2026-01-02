@@ -60,14 +60,19 @@ Visit `http://localhost:8000` in your browser.
 - Feature implementation details
 - Development workflow
 
-## Recent Updates (v1.7.0)
+## Recent Updates (v1.8.0)
 
+- ⏭️ **Skip Stuck Games**: Subtle "skip stuck game" link appears after 45s+ wait and 3+ status messages
+- ⏱️ **Timeout Forfeit**: Slow models forfeit automatically, new game starts in 3 seconds
+- 🤖 **Livelier Chat Bots**: Increased activity (40% on normal moves, 8-12s cooldowns)
+- 🔧 **Bug Fixes**: Fixed disconnect cleanup, database connection, exception handling
+- 🔗 **Standardized Headers**: All API calls use consistent HTTP-Referer
+
+### v1.7.0
 - 🔮 **Viewer Predictions**: Users can predict the winner before games end
-- 💬 **Dual AI Chat Bots**: Two chat bots with distinct personalities (enthusiastic hype bot and skeptical commentator) react to game events
-- 💰 **Cost Tracking**: Real-time API cost tracking per player displayed in UI
-- 🚫 **Model Blacklist**: Expensive models (o3, gpt-5.2-pro, deep-research) excluded from random selection
-- 🎯 **Event-based Chat**: Bots more likely to comment on brilliant moves (70%), blunders (80%), and game endings (90%)
-- 🎨 **Colorful Bots**: Each bot gets a unique name and color on server start
+- 💬 **Dual AI Chat Bots**: Two chat bots with distinct personalities (hype bot & skeptic)
+- 💰 **Cost Tracking**: Real-time API cost tracking per player
+- 🚫 **Model Blacklist**: Expensive models excluded from random selection
 
 ## Created By
 
