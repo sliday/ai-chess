@@ -1,59 +1,163 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Chess Arena: Real-time battles between AI models</title>
+    <title>AI Chess - Watch AI Models Play Chess Live</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <!-- TailwindCSS (local production build) -->
+    <link href="/static/tailwind.min.css" rel="stylesheet" type="text/css" />
     <!-- DaisyUI for UI components on top of TailwindCSS -->
     <link href="https://cdn.jsdelivr.net/npm/daisyui@3.7.3/dist/full.css" rel="stylesheet" type="text/css" />
-    <!-- TailwindCSS for utility-first styling -->
-    <script src="https://cdn.tailwindcss.com"></script>
     <!-- p5.js library -->
     <script src="https://cdn.jsdelivr.net/npm/p5@1.7.0/lib/p5.min.js"></script>
+    <!-- jQuery (required for sparklines) -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <!-- jQuery Sparklines for micro charts -->
+    <script src="https://omnipotent.net/jquery.sparkline/2.1.2/jquery.sparkline.min.js"></script>
+    <!-- gif.js library for GIF generation -->
+    <script src="/static/gif.js"></script>
     <style>
         /* p5.js Chess Board Styling */
         .chess-board-container {
             display: flex;
             justify-content: center;
-            padding: 16px;
-            background: #2d2d2d;
             border-radius: 8px;
             margin: 0 auto;
+            position: relative;
+            padding: 4px;
         }
-        
+
         #chessBoard {
             border: 2px solid #333;
             border-radius: 4px;
+            position: relative;
+            z-index: 1;
         }
+
         
         /* Move list & commentary */
-        .move-list, .commentary {
+        .move-list,
+        .commentary {
             font-family: monospace;
             white-space: pre-wrap;
             overflow-y: auto;
         }
-        
+
         /* Make move history take full height */
         .move-history-container {
             display: flex;
             flex-direction: column;
             height: 100%;
         }
-        
+
         .move-history-content {
             flex: 1;
             overflow-y: auto;
         }
-        
+
+        /* Table layout for moves */
+        .move-list {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.7rem;
+            font-family: monospace;
+        }
+
+        .move-list thead {
+            position: sticky;
+            top: 0;
+            background: #2a2a2a;
+            z-index: 1;
+        }
+
+        .move-list th {
+            padding: 4px 6px;
+            text-align: left;
+            font-weight: bold;
+            color: #aaa;
+            border-bottom: 2px solid #444;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+        }
+
+        .move-list th:first-child {
+            text-align: center;
+            width: 30px;
+        }
+
+        .move-list td {
+            padding: 2px 6px;
+            transition: all 0.2s ease;
+        }
+
+        .move-list tr:nth-child(even) {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .move-list tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .move-number {
+            font-weight: bold;
+            color: #666;
+            text-align: center;
+            font-size: 0.65rem;
+        }
+
+        .move-cell {
+            transition: all 0.2s ease;
+            padding: 2px 4px;
+            border-radius: 2px;
+            display: inline-block;
+        }
+
+        /* Move quality visual effects */
+        .move-brilliant {
+            background: linear-gradient(135deg, rgba(251, 189, 35, 0.15) 0%, rgba(251, 189, 35, 0.05) 100%);
+            color: #fbbd23;
+            font-weight: bold;
+            box-shadow: 0 0 8px rgba(251, 189, 35, 0.2);
+        }
+
+        .move-good {
+            background: rgba(16, 185, 129, 0.08);
+            color: #10b981;
+        }
+
+        .move-interesting {
+            background: rgba(59, 130, 246, 0.08);
+            color: #3b82f6;
+        }
+
+        .move-dubious {
+            background: rgba(245, 158, 11, 0.08);
+            color: #f59e0b;
+        }
+
+        .move-mistake {
+            background: rgba(239, 68, 68, 0.08);
+            color: #ef4444;
+        }
+
+        .move-blunder {
+            background: linear-gradient(135deg, rgba(248, 113, 113, 0.15) 0%, rgba(248, 113, 113, 0.05) 100%);
+            color: #f87272;
+            font-weight: bold;
+            box-shadow: 0 0 8px rgba(248, 113, 113, 0.2);
+        }
+
         /* Special effects for commentary */
         .blunder-effect {
             color: #f87272;
         }
-        
+
         .brilliant-effect {
             color: #fbbd23;
         }
-        
+
         /* Status message styling */
         .status-message {
             font-size: 0.85em;
@@ -63,21 +167,136 @@
             padding-top: 0.5em;
             margin-top: 0.5em;
         }
-        
+
         .commentary-content {
             margin-bottom: 0.5em;
         }
-        
+
         /* Keep fixed size - no mobile optimizations needed */
-    </style>
+
+        /* Player badge */
+        .player-badge {
+            display: inline-flex !important;
+            align-items: center;
+            gap: 6px;
+        }
+
+        #whitePlayer .player-badge {
+            background: rgba(255, 255, 255, 0.15) !important;
+            color: #f0f0f0;
+        }
+
+        #blackPlayer .player-badge {
+            background: rgba(0, 0, 0, 0.4) !important;
+            color: #e0e0e0;
+        }
+
+        /* Status badge styling to match player badges */
+        .status-badge-white {
+            background: rgba(255, 255, 255, 0.15) !important;
+            color: #f0f0f0 !important;
+        }
+
+        .status-badge-black {
+            background: rgba(0, 0, 0, 0.4) !important;
+            color: #e0e0e0 !important;
+        }
+
+        /* Player circle indicators */
+        .player-circle {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            flex-shrink: 0;
+            transition: all 0.3s ease;
+        }
+
+        .white-circle {
+            background: #ffffff;
+            border-color: #cccccc;
+        }
+
+        .black-circle {
+            background: #1a1a1a;
+            border-color: #444444;
+        }
+
+        /* Marching ants animation when active */
+        .player-stat.active-turn .player-circle {
+            border: 2px dashed #888888;
+            animation: marching-ants 1s linear infinite;
+        }
+
+        @keyframes marching-ants {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Skeleton shimmer animation for thinking player */
+        .player-stat.active-turn {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .player-stat.active-turn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                90deg,
+                transparent 0%,
+                rgba(255, 255, 255, 0.04) 20%,
+                rgba(255, 255, 255, 0.07) 50%,
+                rgba(255, 255, 255, 0.04) 80%,
+                transparent 100%
+            );
+            animation: thinking-shimmer 2s ease-in-out infinite;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        @keyframes thinking-shimmer {
+            0% {
+                left: -100%;
+            }
+            100% {
+                left: 100%;
+            }
+        }
+
+        </style>
 </head>
+
 <body class="min-h-screen bg-base-300">
     <!-- Simple header -->
     <div class="navbar bg-base-200">
         <div class="flex-1">
-            <span class="font-bold text-xl px-2">AI Chess Arena<span class="hidden sm:inline text-sm font-normal text-gray-500">: Real-time battles between AI models</span></span>
+            <div class="flex items-center gap-2 px-2">
+                <img src="/static/favicon.png" alt="AI Chess" class="w-8 h-8 rounded-lg hidden sm:block">
+                <span class="text-xl"><span class="font-bold">AI Chess</span><span class="hidden sm:inline"> - <span id="titleSuffix">Watch <span id="modelCount">349</span> AI Models Play Chess</span></span></span>
+                <span class="badge badge-success badge-sm ml-2 text-xs" id="viewersBadge" style="display: none;">
+                    <span id="viewersCount">0</span> 👁️
+                </span>
+            </div>
         </div>
-        <div class="flex-none">
+        <div class="flex-none gap-2">
+            <button
+                id="howItWorksBtn"
+                class="btn btn-sm btn-ghost"
+                onclick="document.getElementById('howItWorksModal').showModal()"
+            >
+                <span class="hidden sm:inline">HOW IT WORKS</span>
+                <span class="sm:hidden">?</span>
+            </button>
             <button id="newGameBtn" class="btn btn-sm btn-primary">New Game</button>
         </div>
     </div>
@@ -88,17 +307,27 @@
             <!-- Players -->
             <div class="card bg-base-100 shadow-sm">
                 <div class="stats shadow text-sm">
-                    <div class="stat">
-                        <div class="stat-title">⚪ White</div>
+                    <div class="stat player-stat" id="whitePlayer">
+                        <div class="stat-title">
+                            <span class="badge badge-lg player-badge rounded-full">
+                                <span class="player-circle white-circle"></span>
+                                White
+                            </span>
+                        </div>
                         <div id="model1Name" class="font-medium truncate text-sm">-</div>
                     </div>
-                    <div class="stat">
-                        <div class="stat-title">⚫ Black</div>
+                    <div class="stat player-stat" id="blackPlayer">
+                        <div class="stat-title">
+                            <span class="badge badge-lg player-badge rounded-full">
+                                <span class="player-circle black-circle"></span>
+                                Black
+                            </span>
+                        </div>
                         <div id="model2Name" class="font-medium truncate text-sm">-</div>
                     </div>
                 </div>
             </div>
-            
+
             <!-- Game content -->
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <!-- Chess board section -->
@@ -106,39 +335,100 @@
                     <div class="chess-board-container">
                         <div id="chessBoard"></div>
                     </div>
-                    
+
                     <!-- Replay controls -->
                     <div class="flex justify-center mt-2 space-x-2" id="replayControls" style="display: none;">
                         <button class="btn btn-xs" id="replayFirst" title="First move">⏮️</button>
                         <button class="btn btn-xs" id="replayPrev" title="Previous move">⏪</button>
+                        <button class="btn btn-xs" id="replayPlayPause" title="Play/Pause">▶️</button>
                         <span class="px-2 py-1 bg-gray-100 rounded text-xs font-mono" id="replayCounter">0/0</span>
                         <button class="btn btn-xs" id="replayNext" title="Next move">⏩</button>
                         <button class="btn btn-xs" id="replayLast" title="Last move">⏭️</button>
+                        <button class="btn btn-xs btn-secondary" id="replayDownloadGif" title="Download GIF">📥</button>
                         <button class="btn btn-xs btn-error" id="replayExit" title="Exit replay">✖️</button>
                     </div>
                 </div>
-                
+
                 <!-- Info section -->
                 <div class="grid grid-cols-1 gap-4 h-full">
                     <!-- Commentary -->
                     <div class="card bg-base-200 shadow-sm">
                         <div class="card-body">
                             <div class="flex justify-between items-center">
-                                <h3 class="text-sm font-bold">Commentary</h3>
-                                <div id="gameStatus" class="badge badge-sm font-bold bg-gray-200 text-gray-700">WAITING</div>
+                                <div id="gameStatus" class="badge badge-md font-bold bg-gray-200 text-gray-700">WAITING
+                                </div>
                             </div>
                             <div id="commentary" class="commentary text-xs mt-1">Waiting for game to start...</div>
                         </div>
                     </div>
-                    
+
                     <!-- Moves -->
                     <div class="card bg-base-200 shadow-sm flex-1">
                         <div class="card-body move-history-container">
                             <div class="flex justify-between items-center">
                                 <h3 class="text-sm font-bold">Move History</h3>
-                                <button id="startReplayBtn" class="btn btn-xs btn-outline" title="Replay game" style="display: none;">▶️ Replay</button>
+                                <button id="startReplayBtn" class="btn btn-xs btn-outline" title="Replay game"
+                                    style="display: none;">▶️ Replay</button>
                             </div>
                             <div id="moveList" class="move-list text-xs mt-1 move-history-content">No moves yet</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Dashboard (Platform Meta-Statistics) -->
+            <div class="card bg-base-100 shadow-sm mt-2">
+                <div class="card-body p-4">
+                    <h2 class="text-md font-bold mb-3">📊 Platform Statistics</h2>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div class="stat bg-base-200 rounded-lg p-3">
+                            <div class="stat-title text-xs">🎮 Total Games</div>
+                            <div class="stat-value text-lg font-bold" id="stat-games">-</div>
+                            <div class="stat-desc text-xs">
+                                <div><span class="sparkline-games" data-sparkline="0"></span></div>
+                                <span>Last 24h</span>
+                            </div>
+                        </div>
+                        <div class="stat bg-base-200 rounded-lg p-3">
+                            <div class="stat-title text-xs">♟️ Total Moves</div>
+                            <div class="stat-value text-lg font-bold" id="stat-moves">-</div>
+                            <div class="stat-desc text-xs">
+                                <div><span class="sparkline-moves" data-sparkline="0"></span></div>
+                                <span>Last 24h</span>
+                            </div>
+                        </div>
+                        <div class="stat bg-base-200 rounded-lg p-3">
+                            <div class="stat-title text-xs">⏱️ Avg Length</div>
+                            <div class="stat-value text-lg font-bold" id="stat-avg">-</div>
+                            <div class="stat-desc text-xs">
+                                <div><span class="sparkline-avg" data-sparkline="0"></span></div>
+                                <span>Last 24h</span>
+                            </div>
+                        </div>
+                        <div class="stat bg-base-200 rounded-lg p-3">
+                            <div class="stat-title text-xs">🚀 Activity</div>
+                            <div class="stat-value text-lg font-bold" id="stat-activity">-</div>
+                            <div class="stat-desc text-xs">Games/hour</div>
+                        </div>
+                        <div class="stat bg-base-200 rounded-lg p-3">
+                            <div class="stat-title text-xs">⚡ Fastest Game</div>
+                            <div class="stat-value text-lg font-bold" id="stat-fastest">-</div>
+                            <div class="stat-desc text-xs">Moves to finish</div>
+                        </div>
+                        <div class="stat bg-base-200 rounded-lg p-3">
+                            <div class="stat-title text-xs">🕰️ Longest Game</div>
+                            <div class="stat-value text-lg font-bold" id="stat-longest">-</div>
+                            <div class="stat-desc text-xs">Moves to finish</div>
+                        </div>
+                        <div class="stat bg-base-200 rounded-lg p-3">
+                            <div class="stat-title text-xs">🎯 Decisive Rate</div>
+                            <div class="stat-value text-lg font-bold" id="stat-decisive">-</div>
+                            <div class="stat-desc text-xs">Win/loss games</div>
+                        </div>
+                        <div class="stat bg-base-200 rounded-lg p-3">
+                            <div class="stat-title text-xs">🌍 Active Models</div>
+                            <div class="stat-value text-lg font-bold" id="stat-models">-</div>
+                            <div class="stat-desc text-xs">Unique players</div>
                         </div>
                     </div>
                 </div>
@@ -147,51 +437,119 @@
             <!-- Leaderboard (simplified) -->
             <div class="card bg-base-100 shadow-sm mt-2">
                 <div class="card-body">
-                    <h2 class="text-md font-bold mb-1">Leaderboard</h2>
+                    <div class="flex justify-between items-center mb-2">
+                        <h2 class="text-md font-bold">Leaderboard</h2>
+                        <div class="flex items-center gap-2">
+                            <label class="text-xs">Min games:</label>
+                            <select id="minGamesFilter" class="select select-xs select-bordered">
+                                <option value="0" selected>All</option>
+                                <option value="3">3+</option>
+                                <option value="5">5+</option>
+                                <option value="10">10+</option>
+                            </select>
+                        </div>
+                    </div>
                     <div class="overflow-x-auto">
                         <table class="table table-compact table-zebra w-full">
                             <thead>
                                 <tr>
                                     <th class="text-xs">#</th>
                                     <th class="text-xs">Model</th>
+                                    <th class="text-xs">Elo</th>
                                     <th class="text-xs">Games</th>
-                                    <th class="text-xs">Wins</th>
+                                    <th class="text-xs">W/L/D</th>
                                     <th class="text-xs">Win %</th>
+                                    <th class="text-xs">Streak</th>
                                 </tr>
                             </thead>
                             <tbody id="leaderboardBody" class="text-xs">
                                 <tr>
-                                    <td colspan="5" class="text-center">No games yet</td>
+                                    <td colspan="7" class="text-center">No games yet</td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
             </div>
-            
+
             <!-- Hidden model selectors for future games -->
             <div class="hidden">
-                <select id="model1Select"><option value="random">Random</option></select>
-                <select id="model2Select"><option value="random">Random</option></select>
+                <select id="model1Select">
+                    <option value="random">Random</option>
+                </select>
+                <select id="model2Select">
+                    <option value="random">Random</option>
+                </select>
             </div>
         </div>
     </div>
 
-    <!-- Toast for notifications -->
-    <div id="toast" class="toast toast-end toast-bottom hidden">
-        <div class="alert alert-info text-xs p-2">
-            <span id="toastMessage">Message</span>
-        </div>
-    </div>
+    <!-- Footer -->
+    <footer class="text-center p-2 bg-base-200 text-base-content mt-4 text-xs">
+        Made by <a href="https://x.com/stas_kulesh" target="_blank" rel="noopener noreferrer" class="link link-hover">@stas_kulesh</a>
+    </footer>
 
     <!-- Game Over Modal (simplified) -->
     <dialog id="gameOverModal" class="modal">
-        <div class="modal-box p-4">
-            <h3 class="font-bold text-lg">Game Over</h3>
-            <p id="gameOverMessage" class="py-2 text-sm">The game has ended.</p>
-            <div class="modal-action">
-                <button class="btn btn-sm" onclick="document.getElementById('gameOverModal').close()">Close</button>
-                <button id="playAgainBtn" class="btn btn-sm btn-primary">Play Again</button>
+        <div class="modal-box max-w-md max-h-[90vh] flex flex-col relative">
+            <!-- Close button (X) in top-right corner -->
+            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="document.getElementById('gameOverModal').close()">✕</button>
+
+            <div class="text-center flex-1 overflow-y-auto pt-2 pb-4">
+                <div id="gameOverEmoji" class="text-5xl sm:text-6xl mb-3">🏆</div>
+                <h3 id="gameOverTitle" class="font-bold text-xl sm:text-2xl mb-2">Game Over</h3>
+                <div id="gameOverWinner" class="text-lg sm:text-xl font-semibold mb-3"></div>
+                <div id="gameOverReason" class="text-sm text-base-content/80 leading-relaxed mb-4 px-2"></div>
+            </div>
+
+            <div class="modal-action justify-center mt-2 flex-shrink-0 gap-2">
+                <button id="downloadGifBtn" class="btn btn-sm btn-ghost">
+                    <span class="loading loading-spinner loading-xs" id="gifLoading" style="display: none;"></span>
+                    <span id="gifButtonText">📥 Download GIF</span>
+                </button>
+                <button id="playAgainBtn" class="btn btn-sm btn-primary">▶️ New Game</button>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- How it Works Modal -->
+    <dialog id="howItWorksModal" class="modal">
+        <div class="modal-box max-w-xl relative">
+            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="document.getElementById('howItWorksModal').close()">✕</button>
+            <h3 class="font-bold text-lg mb-3">How it Works</h3>
+            <div class="text-sm leading-relaxed space-y-3">
+                <p>
+                    <strong>AI Chess Arena</strong> features <strong>334 AI language models</strong> (via OpenRouter) competing in autonomous chess matches. Games run 24/7 with two randomly selected models playing as White and Black.
+                </p>
+
+                <p>
+                    <strong>Game Mechanics:</strong><br>
+                    • Each model receives the current board position and must respond with a valid chess move<br>
+                    • A sophisticated move interpretation system handles various notation formats (UCI, SAN, shorthand)<br>
+                    • Invalid moves result in automatic retries (up to 5 attempts)<br>
+                    • Live commentary provided by GPT-5.1 analyzes each move with chess annotations (!, !!, ?, ??, ±, etc.)
+                </p>
+
+                <p>
+                    <strong>Game Endings:</strong><br>
+                    Games end by checkmate, stalemate, insufficient material, illegal moves, or after <strong>70 moves</strong> (winner determined by material advantage: pawns=1, knights/bishops=3, rooks=5, queens=9).
+                </p>
+
+                <p>
+                    <strong>Leaderboard System:</strong><br>
+                    • <strong>Elo Rating:</strong> All models start at 1500. Ratings adjust based on wins/losses using standard Elo calculations<br>
+                    • <strong>Streak:</strong> 🔥 fire (3+ consecutive wins), 💀 skull (3+ consecutive losses), or plain W/L/D counts<br>
+                    • Minimum 3 games required to appear on leaderboard
+                </p>
+
+                <p>
+                    <strong>Platform Features:</strong><br>
+                    • Real-time WebSocket updates with smooth p5.js animations<br>
+                    • Live viewer counter showing active spectators<br>
+                    • Platform statistics: total games, total moves, avg game length, activity metrics<br>
+                    • Move replay and GIF generation after games<br>
+                    • 24-hour activity sparklines
+                </p>
             </div>
         </div>
     </dialog>
@@ -199,16 +557,35 @@
     <script>
         /**
          * AI Chess Arena - Frontend JavaScript
-         * 
-         * This script handles all the frontend functionality for the AI Chess Arena:
-         * - Initializing the chessboard and UI
-         * - Managing WebSocket connections for real-time updates
-         * - Rendering the chessboard with Unicode chess symbols
-         * - Displaying move history and commentary
-         * - Handling model selection and game controls
-         * - Visual effects for special game events
+         * ======================================
+         *
+         * Real-time chess visualization for AI model competitions.
+         *
+         * Architecture:
+         *   - p5.js: Canvas-based chess board rendering with smooth animations
+         *   - WebSocket: Real-time updates for moves, commentary, game state
+         *   - jQuery Sparkline: 24-hour statistics visualization
+         *   - gif.js: Game replay GIF generation
+         *
+         * Key Features:
+         *   - Winner Retention: Previous winner marked with ⭐, stays for next game
+         *   - Move Quality Visualization: Color-coded moves (brilliant, good, mistake, blunder)
+         *   - Statistics Dashboard: 8 metrics with sparklines (30s cache)
+         *   - Move History Table: Traditional scoresheet with zebra striping
+         *   - Game Replay: Frame-by-frame with controls
+         *   - Real-time Animations: Piece movement, captures, cascade effects
+         *
+         * Global State:
+         *   - socket: WebSocket connection to server
+         *   - previousWinner: Tracks winner for retention system
+         *   - moveQualities: Array of move quality classes
+         *   - boardHistory: Array of board states for replay
+         *
+         * Created by: @stas_kulesh
+         * Version: 1.5.0
+         * Last Updated: 2025-11-28
          */
-        
+
         // Global state variables
         let socket = null;              // WebSocket connection
         let currentGameId = null;       // ID of the active game
@@ -219,14 +596,41 @@
         let boardHistory = [];          // History of all board states for replay
         let currentHistoryIndex = -1;   // Current position in history replay
         let isReplaying = false;        // Whether we're in replay mode
-        
+        let replayInterval = null;      // Interval for autoplay
+        let isReplayPlaying = false;    // Whether autoplay is active
+        let previousWinner = null;      // Track previous game winner: {model: 'model-name', position: 0 or 1}
+        let urlSelectedModel = null;    // Model pre-selected via URL parameter (?model=) - plays as White
+        let urlSelectedModel2 = null;   // Second model via URL parameter (?model2=) - plays as Black
+        let autoStartTimer = null;      // Auto-start new game timer
+        let autoStartCountdown = 300;   // Countdown seconds (5 minutes = 300s)
+
         // p5.js variables
         let chessCanvas;
         let boardSize = 400;
         let squareSize = 50;
         let animatingPiece = null;
+        let particles = [];             // Particle system for effects
+        let trailPoints = [];           // Motion trail for moving pieces
+        let afterimages = [];           // Ghost afterimages of moving piece
+        let screenShake = { x: 0, y: 0, intensity: 0 }; // Screen shake effect
+        let impactFlash = { active: false, x: 0, y: 0, radius: 0, alpha: 0 }; // Landing flash
+        let speedLines = [];            // Speed/motion lines
+        let confetti = [];              // Celebration confetti
+        let confettiActive = false;     // Whether confetti is currently active
+        let knightRiderPos = 0;         // Knight Rider scanner position (0-1)
+        let knightRiderDir = 1;         // Scanner direction (1 = right, -1 = left)
+        let currentThinkingPlayer = -1; // 0 = white (bottom), 1 = black (top), -1 = none
         let lightColor, darkColor;
         let pieces = {};
+        let gameStartAnimation = null;  // Animation state for new game piece appearance
+        let capturedByWhite = [];  // Pieces white has captured (black pieces)
+        let capturedByBlack = [];  // Pieces black has captured (white pieces)
+        const captureAreaHeight = 50;  // Height of capture area on top and bottom when shown
+        let moveQualities = [];  // Track quality of each move (brilliant, good, mistake, blunder, etc.)
+        let currentMoveAnnotation = null; // Current move annotation badge: {square: 'e4', symbol: '!!', color: [r,g,b], fadeAlpha: 255}
+        let pendingMoveAnnotation = null; // Annotation waiting for animation to complete
+        let animationQueue = [];          // Queue of pending animations (proper chaining)
+        let isPageVisible = true;         // Track page visibility for animation handling
 
         /**
          * Initialize the application when the page loads
@@ -238,20 +642,89 @@
             console.log(logMessage);
         }
 
+        // Basic HTML escaping helpers to prevent XSS when inserting dynamic text
+        function escapeHTML(value) {
+            if (value === undefined || value === null) return '';
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/\"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function escapeAttr(value) {
+            // Attribute-safe escaping (uses same escaping as HTML for this context)
+            return escapeHTML(value);
+        }
+
+        // Track page visibility for animation handling
+        document.addEventListener('visibilitychange', () => {
+            isPageVisible = !document.hidden;
+            console.log(`👁️ Page visibility changed: ${isPageVisible ? 'visible' : 'hidden'}`);
+
+            // When page becomes visible, process any queued animations
+            if (isPageVisible && animationQueue.length > 0 && !animatingPiece) {
+                console.log(`▶️ Page visible, processing ${animationQueue.length} queued animations`);
+                processNextAnimation();
+            }
+        });
+
         document.addEventListener('DOMContentLoaded', async () => {
             log("AI Chess Arena initializing...");
-            
+
+            // Check for URL model parameters (?model=NAME&model2=NAME)
+            const urlParams = new URLSearchParams(window.location.search);
+            const modelParam = urlParams.get('model');
+            const model2Param = urlParams.get('model2');
+            if (modelParam) {
+                urlSelectedModel = decodeURIComponent(modelParam);
+                console.log("🎯 URL model parameter (White):", urlSelectedModel);
+            }
+            if (model2Param) {
+                urlSelectedModel2 = decodeURIComponent(model2Param);
+                console.log("🎯 URL model2 parameter (Black):", urlSelectedModel2);
+            }
+
+            // Check if p5.js is loaded
+            if (typeof p5 === 'undefined') {
+                console.error("❌ p5.js is NOT loaded!");
+            } else {
+                console.log("✅ p5.js is loaded, version:", p5.VERSION || "unknown");
+            }
+
             // Initialize the chessboard display
             initChessBoard();
-            
+
+            // Load model count and update title
+            await loadModelCount();
+
             // Load available models from the server
             await loadModels();
-            
-            // Load the leaderboard data
+
+            // Load stats and leaderboard data
+            await loadStats();
+            await loadSparklines();
             await loadLeaderboard();
-            
+            await loadViewers();
+
+            // Auto-refresh sparklines and stats every 5 minutes
+            setInterval(async () => {
+                await loadSparklines();
+                await loadStats();
+                console.log('🔄 Auto-refreshed sparklines and stats');
+            }, 300000); // 5 minutes = 300,000 ms
+
+            // Auto-refresh viewer count every 10 seconds
+            setInterval(async () => {
+                await loadViewers();
+            }, 10000); // 10 seconds = 10,000 ms
+
             // Set up event listeners for UI controls
             document.getElementById('newGameBtn').addEventListener('click', () => {
+                // Clear auto-start timer if running
+                clearAutoNewGameTimer();
+
                 if (gameInProgress) {
                     if (confirm('A game is currently in progress. Are you sure you want to start a new game?')) {
                         resetGame();
@@ -260,26 +733,77 @@
                     resetGame();
                 }
             });
-            
+
+            document.getElementById('howItWorksBtn').addEventListener('click', () => {
+                document.getElementById('howItWorksModal').showModal();
+            });
+
             // Set event listeners for remaining buttons
             if (document.getElementById('startGameBtn')) {
                 document.getElementById('startGameBtn').addEventListener('click', startGame);
             }
-            document.getElementById('playAgainBtn').addEventListener('click', resetGame);
-            
+            document.getElementById('playAgainBtn').addEventListener('click', () => {
+                clearAutoNewGameTimer();
+                resetGame();
+            });
+            document.getElementById('downloadGifBtn').addEventListener('click', generateGameGIF);
+
             // Set up replay controls
             document.getElementById('startReplayBtn').addEventListener('click', startReplay);
             document.getElementById('replayFirst').addEventListener('click', () => replayMove(0));
             document.getElementById('replayPrev').addEventListener('click', () => replayMove(currentHistoryIndex - 1));
+            document.getElementById('replayPlayPause').addEventListener('click', toggleReplayAutoplay);
             document.getElementById('replayNext').addEventListener('click', () => replayMove(currentHistoryIndex + 1));
             document.getElementById('replayLast').addEventListener('click', () => replayMove(boardHistory.length - 1));
+            document.getElementById('replayDownloadGif').addEventListener('click', generateGameGIF);
             document.getElementById('replayExit').addEventListener('click', exitReplay);
-            
-            // Always start a new game automatically when the page loads
-            startGame();
-            log("Initialization complete, auto-starting new game");
+
+            // Set up min games filter
+            document.getElementById('minGamesFilter').addEventListener('change', (e) => {
+                const minGames = parseInt(e.target.value);
+                loadLeaderboard(minGames);
+            });
+
+            // Check for URL model parameter - takes priority
+            if (urlSelectedModel || urlSelectedModel2) {
+                console.log("🎯 Starting game with pre-selected model(s):", urlSelectedModel, urlSelectedModel2);
+                localStorage.removeItem('currentGameId'); // Clear any saved game
+                startGame(true, urlSelectedModel, urlSelectedModel2); // Force new game with selected model(s)
+            }
+            // Check if user has a personal game in progress
+            else {
+                const savedGameId = localStorage.getItem('currentGameId');
+                if (savedGameId) {
+                    // Try to resume their personal game
+                    console.log("Found saved game ID:", savedGameId);
+                    // Check if this game still exists on the server
+                    fetch(`/game_status/${savedGameId}`)
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.exists && data.status !== 'finished') {
+                                console.log("Resuming personal game:", savedGameId);
+                                currentGameId = savedGameId;
+                                connectWebSocket(savedGameId);
+                            } else {
+                                console.log("Saved game no longer active, joining shared game");
+                                localStorage.removeItem('currentGameId');
+                                startGame(); // Join shared game
+                            }
+                        })
+                        .catch(() => {
+                            console.log("Error checking saved game, joining shared game");
+                            localStorage.removeItem('currentGameId');
+                            startGame(); // Join shared game
+                        });
+                } else {
+                    // New user: join the shared autonomous game
+                    console.log("No saved game, joining shared autonomous game");
+                    startGame();
+                }
+            }
+            log("Initialization complete");
         });
-        
+
         /**
          * Initialize the chess board UI
          * Calls updateChessBoard with the standard initial position.
@@ -288,51 +812,50 @@
         /**
          * Initialize the chess board with p5.js
          */
+        /**
+         * Initialize the chess board with p5.js
+         */
         function initChessBoard() {
             // Create empty board state
             gameBoard = createEmptyBoard();
-            
-            // Set up initial position
-            const initialPosition = createStandardPosition();
-            updateChessBoard(initialPosition);
             log("p5.js Chessboard initialized");
         }
-        
+
         /**
          * Create standard chess starting position
          */
         function createStandardPosition() {
             const board = createEmptyBoard();
-            
+
             // Black pieces
             board[0] = [
-                {"symbol": "♜", "color": "b"}, {"symbol": "♞", "color": "b"}, 
-                {"symbol": "♝", "color": "b"}, {"symbol": "♛", "color": "b"}, 
-                {"symbol": "♚", "color": "b"}, {"symbol": "♝", "color": "b"}, 
-                {"symbol": "♞", "color": "b"}, {"symbol": "♜", "color": "b"}
+                { "symbol": "♜", "color": "b" }, { "symbol": "♞", "color": "b" },
+                { "symbol": "♝", "color": "b" }, { "symbol": "♛", "color": "b" },
+                { "symbol": "♚", "color": "b" }, { "symbol": "♝", "color": "b" },
+                { "symbol": "♞", "color": "b" }, { "symbol": "♜", "color": "b" }
             ];
-            
+
             // Black pawns
             for (let col = 0; col < 8; col++) {
-                board[1][col] = {"symbol": "♟", "color": "b"};
+                board[1][col] = { "symbol": "♟", "color": "b" };
             }
-            
+
             // White pawns
             for (let col = 0; col < 8; col++) {
-                board[6][col] = {"symbol": "♟", "color": "w"};
+                board[6][col] = { "symbol": "♟", "color": "w" };
             }
-            
+
             // White pieces
             board[7] = [
-                {"symbol": "♜", "color": "w"}, {"symbol": "♞", "color": "w"}, 
-                {"symbol": "♝", "color": "w"}, {"symbol": "♛", "color": "w"}, 
-                {"symbol": "♚", "color": "w"}, {"symbol": "♝", "color": "w"}, 
-                {"symbol": "♞", "color": "w"}, {"symbol": "♜", "color": "w"}
+                { "symbol": "♜", "color": "w" }, { "symbol": "♞", "color": "w" },
+                { "symbol": "♝", "color": "w" }, { "symbol": "♛", "color": "w" },
+                { "symbol": "♚", "color": "w" }, { "symbol": "♝", "color": "w" },
+                { "symbol": "♞", "color": "w" }, { "symbol": "♜", "color": "w" }
             ];
-            
+
             return board;
         }
-        
+
         /**
          * Helper function to create an empty 8x8 chess board
          */
@@ -341,13 +864,31 @@
             for (let row = 0; row < 8; row++) {
                 const boardRow = [];
                 for (let col = 0; col < 8; col++) {
-                    boardRow.push({"symbol": "", "color": ""});
+                    boardRow.push({ "symbol": "", "color": "" });
                 }
                 board.push(boardRow);
             }
             return board;
         }
-        
+
+        /**
+         * Load model count and update the title
+         */
+        async function loadModelCount() {
+            try {
+                const response = await fetch('/models/count');
+                const data = await response.json();
+                const count = data.count;
+
+                // Update the title suffix with the model count
+                document.getElementById('titleSuffix').textContent = `Watch ${count} AI Models Play Chess Live`;
+                log(`Model count: ${count}`);
+            } catch (error) {
+                console.error("Error loading model count:", error);
+                // Keep default text if loading fails
+            }
+        }
+
         /**
          * Load available AI models from the server
          * Fetches models from the API and populates the dropdown selectors
@@ -359,11 +900,11 @@
                 const data = await response.json();
                 models = data.models;
                 log(`${models.length} models loaded from server`);
-                
+
                 // Get references to the dropdown elements
                 const model1Select = document.getElementById('model1Select');
                 const model2Select = document.getElementById('model2Select');
-                
+
                 // Clear existing options except for the "Random" option (which is always first)
                 while (model1Select.options.length > 1) {
                     model1Select.remove(1);
@@ -371,189 +912,377 @@
                 while (model2Select.options.length > 1) {
                     model2Select.remove(1);
                 }
-                
+
                 // Add each model to both dropdowns
                 models.forEach(model => {
                     // Use the display name from the server if available, otherwise format it
                     const displayName = model.display_name || formatModelName(model.id || model);
                     const modelId = model.id || model;
-                    
+
                     // Create and add option for White player (model1)
                     const option1 = document.createElement('option');
                     option1.value = modelId;
                     option1.textContent = displayName;
                     model1Select.appendChild(option1);
-                    
+
                     // Create and add option for Black player (model2)
                     const option2 = document.createElement('option');
                     option2.value = modelId;
                     option2.textContent = displayName;
                     model2Select.appendChild(option2);
                 });
-                
+
                 log("Model dropdowns populated");
             } catch (error) {
                 console.error("Error loading models:", error);
-                showToast('Error loading models: ' + error.message);
             }
         }
-        
+
         // Format model name for display
         function formatModelName(model) {
             if (!model) return "Unknown Model";
-            
+
             // Check if model is an object (from old format) or string (new format)
             if (typeof model === 'object' && model.id) {
                 return model.display_name || model.id;
             }
-            
+
             // Handle string format
             let modelStr = model;
             if (modelStr.startsWith('/')) {
                 modelStr = modelStr.substring(1);
             }
-            
+
             // Split into provider and model name
             const parts = modelStr.split('/');
             if (parts.length < 2) return modelStr;
-            
+
             let provider = parts[0];
             let name = parts[1];
-            
+
             // Handle additional tags after the name (like :free)
             if (name.includes(':')) {
                 const nameParts = name.split(':');
                 name = nameParts[0];
             }
-            
+
             return `${provider} / ${name}`;
         }
-        
+
         // Format model name for player titles (drops mistralai prefix)
         function formatPlayerName(model) {
             if (!model) return "Unknown Model";
-            
+
             // Check if model is an object (from old format) or string (new format)
             if (typeof model === 'object' && model.id) {
                 model = model.display_name || model.id;
             }
-            
+
             // Handle string format
             let modelStr = model;
             if (modelStr.startsWith('/')) {
                 modelStr = modelStr.substring(1);
             }
-            
+
             // Split into provider and model name
             const parts = modelStr.split('/');
             if (parts.length < 2) return modelStr;
-            
+
             let provider = parts[0];
             let name = parts[1];
-            
+
             // Handle additional tags after the name (like :free)
             if (name.includes(':')) {
                 const nameParts = name.split(':');
                 name = nameParts[0];
             }
-            
+
             // Drop mistralai prefix for player titles
             if (provider.toLowerCase() === 'mistralai') {
                 return name;
             }
-            
+
             return `${provider} / ${name}`;
         }
-        
-        // Load leaderboard data
-        async function loadLeaderboard() {
+
+        // Load stats data
+        async function loadStats(period = 'daily') {
             try {
-                const response = await fetch('/leaderboard');
+                const response = await fetch(`/stats?period=${period}`);
+                const data = await response.json();
+                updateStats(data);
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        // Load viewers count
+        async function loadViewers() {
+            try {
+                const response = await fetch('/viewers_count');
+                const data = await response.json();
+                const count = data.count || 0;
+
+                document.getElementById('viewersCount').textContent = count;
+
+                // Show/hide badge based on viewer count
+                const badge = document.getElementById('viewersBadge');
+                if (count > 0) {
+                    badge.style.display = 'inline-block';
+                } else {
+                    badge.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error loading viewers:', error);
+            }
+        }
+
+        // Load sparkline data
+        async function loadSparklines() {
+            try {
+                const response = await fetch('/stats/hourly');
+                const data = await response.json();
+
+                // Render sparklines with jQuery Sparkline
+                $('.sparkline-games').sparkline(data.games, {
+                    type: 'line',
+                    width: '100%',
+                    height: '20px',
+                    lineColor: '#3b82f6',
+                    fillColor: 'rgba(59, 130, 246, 0.2)',
+                    spotColor: '#3b82f6',
+                    minSpotColor: '#ef4444',
+                    maxSpotColor: '#10b981',
+                    lineWidth: 1.5,
+                    spotRadius: 2,
+                    disableTooltips: true,
+                    disableHighlight: true
+                });
+
+                $('.sparkline-moves').sparkline(data.moves, {
+                    type: 'bar',
+                    barWidth: 3,
+                    height: '20px',
+                    barColor: '#8b5cf6',
+                    barSpacing: 1,
+                    disableTooltips: true,
+                    disableHighlight: true
+                });
+
+                $('.sparkline-avg').sparkline(data.avg_length, {
+                    type: 'line',
+                    width: '100%',
+                    height: '20px',
+                    lineColor: '#f59e0b',
+                    fillColor: 'rgba(245, 158, 11, 0.2)',
+                    lineWidth: 1.5,
+                    spotRadius: 0,
+                    normalRangeMin: 8,
+                    normalRangeMax: 12,
+                    normalRangeColor: 'rgba(16, 185, 129, 0.1)',
+                    disableTooltips: true,
+                    disableHighlight: true
+                });
+
+                console.log('Sparklines rendered successfully');
+            } catch (error) {
+                console.error('Error loading sparklines:', error);
+            }
+        }
+
+        // Update stats display
+        function updateStats(stats) {
+            const meta = stats.meta_stats || {};
+
+            // Meta Statistics
+            document.getElementById('stat-games').textContent = (meta.total_games_all_time || 0).toLocaleString();
+            document.getElementById('stat-moves').textContent = (meta.total_moves || 0).toLocaleString();
+            document.getElementById('stat-avg').textContent = meta.avg_game_length || 0;
+            document.getElementById('stat-activity').textContent = meta.games_per_hour || 0;
+            document.getElementById('stat-fastest').textContent = meta.fastest_game || 0;
+            document.getElementById('stat-longest').textContent = meta.longest_game || 0;
+            document.getElementById('stat-decisive').textContent = `${meta.decisive_rate || 100}%`;
+            document.getElementById('stat-models').textContent = meta.active_models || 0;
+        }
+
+        // Load leaderboard data
+        async function loadLeaderboard(minGames = 0) {
+            try {
+                const response = await fetch(`/leaderboard?min_games=${minGames}`);
                 const data = await response.json();
                 updateLeaderboard(data.leaderboard);
             } catch (error) {
-                showToast('Error loading leaderboard: ' + error.message);
+                console.error('Error loading leaderboard:', error);
             }
         }
-        
-        // Update leaderboard display - simplified for mobile
+
+        // Format streak display with visual indicators
+        function formatStreak(streak) {
+            if (!streak || !streak.type || streak.count === 0) {
+                return '-';
+            }
+
+            const count = streak.count;
+            const type = streak.type;
+
+            if (type === 'W') {
+                // Win streak
+                if (count >= 3) {
+                    return `<span class="text-success font-bold">🔥${count}W</span>`;
+                }
+                return `<span class="text-success">${count}W</span>`;
+            } else if (type === 'L') {
+                // Loss streak
+                if (count >= 3) {
+                    return `<span class="text-error font-bold">💀${count}L</span>`;
+                }
+                return `<span class="text-error">${count}L</span>`;
+            } else if (type === 'D') {
+                // Draw streak
+                return `<span class="text-warning">${count}D</span>`;
+            }
+
+            return '-';
+        }
+
+        // Update leaderboard display
         function updateLeaderboard(leaderboard) {
             const tbody = document.getElementById('leaderboardBody');
             tbody.innerHTML = '';
-            
+
             if (leaderboard.length === 0) {
                 const row = document.createElement('tr');
-                row.innerHTML = '<td colspan="5" class="text-center">No games yet</td>';
+                row.innerHTML = '<td colspan="7" class="text-center">No games yet</td>';
                 tbody.appendChild(row);
                 return;
             }
-            
+
             // Show full leaderboard
             leaderboard.forEach((entry, index) => {
                 const row = document.createElement('tr');
-                
+
                 // Add rank class for top 3
                 if (index < 3) {
                     row.classList.add('font-bold');
                 }
-                
+
                 // Allow longer model names in leaderboard
                 let displayName = entry.display_name || formatModelName(entry.model);
-                // Shorten if too long (3x longer than before)
-                if (displayName.length > 60) {
-                    displayName = displayName.substring(0, 58) + '...';
+                // Shorten if too long
+                if (displayName.length > 40) {
+                    displayName = displayName.substring(0, 38) + '...';
                 }
-                
+
+                // Format W/L/D column
+                const wld = `${entry.wins}/${entry.losses}/${entry.draws}`;
+
+                // Format streak with visual indicators
+                const streakHtml = formatStreak(entry.streak);
+
                 row.innerHTML = `
                     <td>${index + 1}</td>
                     <td>${displayName}</td>
+                    <td class="font-bold">${entry.elo}</td>
                     <td>${entry.games}</td>
-                    <td>${entry.wins}</td>
+                    <td>${wld}</td>
                     <td>${entry.win_rate}%</td>
+                    <td>${streakHtml}</td>
                 `;
-                
+
                 tbody.appendChild(row);
             });
         }
-        
+
         // Start a new game
-        async function startGame() {
-            if (gameInProgress) {
+        // Start a new game (or connect to active one)
+        // preselectedModel: optional model ID to use as white player (model1)
+        // preselectedModel2: optional model ID to use as black player (model2)
+        async function startGame(forceNew = false, preselectedModel = null, preselectedModel2 = null) {
+            if (gameInProgress && !forceNew) {
                 resetGame();
+                return;
             }
-            
+
             try {
-                const model1 = document.getElementById('model1Select').value;
-                const model2 = document.getElementById('model2Select').value;
-                
                 // Update UI
-                document.getElementById('gameStatus').textContent = 'STARTING...';
-                document.getElementById('gameStatus').className = 'badge badge-sm font-bold bg-yellow-500 text-white';
-                document.getElementById('model1Name').textContent = model1 === 'random' ? 'Random Model' : formatPlayerName(model1);
-                document.getElementById('model2Name').textContent = model2 === 'random' ? 'Random Model' : formatPlayerName(model2);
-                document.getElementById('commentary').textContent = 'Setting up the game...';
-                document.getElementById('moveList').textContent = 'No moves yet';
-                
-                // Create game
-                const response = await fetch('/games', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ model1, model2 })
-                });
-                
-                const data = await response.json();
-                currentGameId = data.game_id;
-                
+                document.getElementById('gameStatus').textContent = 'CONNECTING...';
+                document.getElementById('gameStatus').className = 'badge badge-md font-bold bg-yellow-500 text-white';
+                document.getElementById('commentary').textContent = forceNew ? 'Creating new game...' : 'Connecting to autonomous game...';
+
+                let response, data;
+
+                if (forceNew) {
+                    // Force create a new game
+                    // If preselectedModel is provided, use it as model1 (white)
+                    // If there's a previous winner, swap their side (winner switches color)
+                    let requestBody;
+
+                    if (preselectedModel || preselectedModel2) {
+                        // URL parameters take priority - preselected models play specified sides
+                        requestBody = {
+                            model1: preselectedModel || 'random',
+                            model2: preselectedModel2 || 'random',
+                            use_previous_result: false
+                        };
+                        console.log("🎯 Pre-selected models - White:", preselectedModel || 'random', "Black:", preselectedModel2 || 'random');
+                    } else if (previousWinner) {
+                        // Winner swaps sides: if they were white, now black and vice versa
+                        if (previousWinner.position === 0) {
+                            // Winner was white (model1), now plays as black (model2)
+                            requestBody = {
+                                model1: 'random',
+                                model2: previousWinner.model,
+                                use_previous_result: false
+                            };
+                            console.log(`🔄 Winner ${previousWinner.model} swapping from White to Black`);
+                        } else {
+                            // Winner was black (model2), now plays as white (model1)
+                            requestBody = {
+                                model1: previousWinner.model,
+                                model2: 'random',
+                                use_previous_result: false
+                            };
+                            console.log(`🔄 Winner ${previousWinner.model} swapping from Black to White`);
+                        }
+                    } else {
+                        // No previous winner, random matchup
+                        requestBody = {
+                            model1: 'random',
+                            model2: 'random',
+                            use_previous_result: false
+                        };
+                    }
+
+                    response = await fetch('/games', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(requestBody)
+                    });
+                    data = await response.json();
+                    currentGameId = data.game_id;
+                    // Save personal game to localStorage
+                    localStorage.setItem('currentGameId', currentGameId);
+                    console.log("💾 Saved personal game to localStorage:", currentGameId);
+                } else {
+                    // Get active game (for auto-start on page load)
+                    response = await fetch('/active_game');
+                    data = await response.json();
+                    currentGameId = data.game_id;
+                    // Don't save shared game to localStorage
+                }
+
                 // Connect to WebSocket
                 connectWebSocket(currentGameId);
                 gameInProgress = true;
             } catch (error) {
-                showToast('Error starting game: ' + error.message);
+                console.error('Error connecting to game:', error);
                 document.getElementById('gameStatus').textContent = 'Error';
                 document.getElementById('gameStatus').className = 'badge badge-lg badge-error';
             }
         }
-        
+
         /**
          * Connect to WebSocket for real-time game updates
          * 
@@ -565,40 +1294,51 @@
         function connectWebSocket(gameId) {
             // Close any existing connection before creating a new one
             if (socket) {
+                // Remove event handlers to prevent stale messages
+                socket.onmessage = null;
+                socket.onopen = null;
+                socket.onclose = null;
+                socket.onerror = null;
                 socket.close();
             }
-            
+
             // Determine the appropriate WebSocket protocol based on page protocol (HTTP/HTTPS)
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/ws/${gameId}`;
-            
+
             log(`Connecting to WebSocket at ${wsUrl}`);
             socket = new WebSocket(wsUrl);
-            
+
             // Connection established handler
             socket.onopen = () => {
                 log('WebSocket connected successfully');
             };
-            
+
             // Message received handler
             socket.onmessage = (event) => {
                 const message = JSON.parse(event.data);
                 log("WebSocket message received: " + message.type);
+
+                // Validate message is for current game
+                if (message.data && message.data.game_id && message.data.game_id !== currentGameId) {
+                    log(`Ignoring message for old game: ${message.data.game_id}`);
+                    return;
+                }
+
                 handleWebSocketMessage(message);
             };
-            
+
             // Connection closed handler
             socket.onclose = () => {
                 log('WebSocket connection closed');
             };
-            
+
             // Error handler
             socket.onerror = (error) => {
                 console.error('WebSocket error:', error);
-                showToast('Connection error: ' + error.message);
             };
         }
-        
+
         /**
          * Handle messages received through the WebSocket connection
          * 
@@ -608,123 +1348,237 @@
          * - status_update: Status messages about the game
          * - game_over: The game has ended
          * - error: Error messages
-         * - commentary_update: Commentary from GPT-4.1-mini
+         * - commentary_update: Commentary from the commentator model
          * 
          * @param {Object} message - The parsed message received from the server
          */
         function handleWebSocketMessage(message) {
-            log('Received WebSocket message: ' + message.type);
-            
             switch (message.type) {
                 case 'game_state':
                     // Store the board state in history for replay
                     if (!isReplaying && message.data.board) {
                         boardHistory.push(JSON.parse(JSON.stringify(message.data.board)));
                         currentHistoryIndex = boardHistory.length - 1;
-                        
+
                         // Enable replay button if we have moves
                         if (boardHistory.length > 1) {
                             document.getElementById('startReplayBtn').disabled = false;
                         }
                     }
-                    
+
                     // Update the UI with the current game state
-                    updateGameState(message.data);
+                    // Queue update if animation is in progress
+                    if (animatingPiece) {
+                        console.log('⏸️ Queueing game_state update - move animation in progress');
+                        const waitForAnimation = () => {
+                            if (animatingPiece) {
+                                setTimeout(waitForAnimation, 50);
+                            } else {
+                                console.log('▶️ Applying queued game_state update');
+                                updateGameState(message.data);
+                            }
+                        };
+                        waitForAnimation();
+                    } else {
+                        updateGameState(message.data);
+                    }
                     break;
-                    
+
                 case 'move_made':
                     // Handle a move being made by one of the AI models
+                    console.log('Move made:', message.data.move);
                     handleMoveMade(message.data);
                     break;
-                    
+
                 case 'status_update':
                     // Update status messages (e.g., "Waiting for model to move...")
                     // If we have both status message and commentary, display both
                     if (message.data.commentary && message.data.commentary !== "Analyzing move...") {
                         // Show both commentary and status message
-                        const statusHtml = `<div class="commentary-content">${highlightChessAnnotations(message.data.commentary)}</div>
-                                          <div class="status-message text-info mt-2">${message.data.message}</div>`;
+                        const safeCommentary = highlightChessAnnotations(escapeHTML(message.data.commentary));
+                        const safeStatus = escapeHTML(message.data.message);
+                        const statusHtml = `<div class="commentary-content">${safeCommentary}</div>
+                                          <div class="status-message text-info mt-2">${safeStatus}</div>`;
                         document.getElementById('commentary').innerHTML = statusHtml;
                     } else {
                         // Just show the status message
-                        document.getElementById('commentary').innerHTML = highlightChessAnnotations(message.data.message);
+                        document.getElementById('commentary').innerHTML = highlightChessAnnotations(escapeHTML(message.data.message));
                     }
                     break;
-                    
+
                 case 'game_over':
                     // Handle game completion
                     handleGameOver(message.data);
                     break;
-                    
+
                 case 'error':
                     // Display error messages
-                    showToast('Error: ' + message.data.message);
+                    console.error('Game error:', message.data.message);
                     break;
-                    
+
                 case 'commentary_update':
-                    // Handle asynchronous commentary updates from GPT-4.1-mini
+                    // Handle asynchronous commentary updates
                     if (message.data && message.data.commentary) {
                         // If we have both status message and commentary, display both
                         if (message.data.message) {
                             // Show both commentary and status message
-                            const statusHtml = `<div class="commentary-content">${highlightChessAnnotations(message.data.commentary)}</div>
-                                              <div class="status-message text-info mt-2">${message.data.message}</div>`;
+                            const safeCommentary = highlightChessAnnotations(escapeHTML(message.data.commentary));
+                            const safeStatus = escapeHTML(message.data.message);
+                            const statusHtml = `<div class="commentary-content">${safeCommentary}</div>
+                                              <div class="status-message text-info mt-2">${safeStatus}</div>`;
                             document.getElementById('commentary').innerHTML = statusHtml;
                         } else {
                             // Just show the commentary with highlighting
-                            document.getElementById('commentary').innerHTML = highlightChessAnnotations(message.data.commentary);
+                            document.getElementById('commentary').innerHTML = highlightChessAnnotations(escapeHTML(message.data.commentary));
                         }
-                        
+
                         // Apply visual effects based on commentary content (like animations for blunders)
                         applyCommentaryEffects(message.data.commentary);
+
+                        // Extract and apply move quality
+                        const quality = extractMoveQuality(message.data.commentary);
+                        if (quality) {
+                            // Apply to the most recent move
+                            const moveCells = document.querySelectorAll('.move-cell[data-move-index]');
+                            if (moveCells.length > 0) {
+                                const lastMoveIndex = parseInt(moveCells[moveCells.length - 1].dataset.moveIndex);
+                                updateMoveQuality(lastMoveIndex, quality);
+                            }
+                        }
+
+                        // Set move annotation badge on board
+                        if (lastMove && lastMove.length >= 4) {
+                            const destSquare = lastMove.substring(2, 4);
+                            setMoveAnnotation(destSquare, message.data.commentary);
+                        }
                     }
                     break;
-                    
+
                 default:
                     console.warn(`Unknown message type received: ${message.type}`);
             }
         }
-        
+
         // Update the game state display
         function updateGameState(data) {
             // Update player names if they've been selected randomly
-            document.getElementById('model1Name').textContent = formatPlayerName(data.model1);
-            document.getElementById('model2Name').textContent = formatPlayerName(data.model2);
-            
-            // Update game status with colors matching player colors (white/black)
-            let statusText = 'In Progress';
-            let statusClass = 'badge badge-sm badge-info';
-            
-            if (data.status === 'finished') {
-                statusText = 'GAME OVER';
-                statusClass = 'badge badge-sm badge-neutral font-bold';
-            } else if (data.current_player === 0) {
-                // White's turn - use white background with dark text
-                statusText = 'WHITE to Move';
-                statusClass = 'badge badge-sm font-bold bg-white text-black border border-gray-300';
+            const model1Element = document.getElementById('model1Name');
+            const model2Element = document.getElementById('model2Name');
+
+            model1Element.textContent = formatPlayerName(data.model1);
+            model2Element.textContent = formatPlayerName(data.model2);
+
+            // Add star indicator for previous winner
+            if (previousWinner) {
+                if (previousWinner.position === 0 && data.model1 === previousWinner.model) {
+                    model1Element.innerHTML = `⭐ ${formatPlayerName(data.model1)}`;
+                    model1Element.title = 'Won previous game';
+                } else if (previousWinner.position === 1 && data.model2 === previousWinner.model) {
+                    model2Element.innerHTML = `⭐ ${formatPlayerName(data.model2)}`;
+                    model2Element.title = 'Won previous game';
+                }
             } else {
-                // Black's turn - use black background with white text
-                statusText = 'BLACK to Move';
-                statusClass = 'badge badge-sm font-bold bg-black text-white';
+                // Clear any tooltips if no previous winner
+                model1Element.title = '';
+                model2Element.title = '';
             }
-            
-            document.getElementById('gameStatus').textContent = statusText;
+
+            // Check if this is a new game (first move)
+            if (data.moves && data.moves.length === 0 && !gameStartAnimation) {
+                // Clear captured pieces for new game
+                capturedByWhite = [];
+                capturedByBlack = [];
+
+                // Start cascade animation
+                gameStartAnimation = {
+                    progress: 0,
+                    duration: 90,
+                    pieceDelays: {}
+                };
+                // Diagonal cascade: top-left to bottom-right
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        gameStartAnimation.pieceDelays[`${row},${col}`] = (row + col) * 5;
+                    }
+                }
+            }
+
+            // Get stat elements
+            const whiteStat = document.getElementById('whitePlayer');
+            const blackStat = document.getElementById('blackPlayer');
+
+            // Remove active class
+            whiteStat.classList.remove('active-turn');
+            blackStat.classList.remove('active-turn');
+
+            // Update highlighting and Knight Rider thinking animation
+            if (data.status === 'finished') {
+                // Game over - no highlighting, stop Knight Rider
+                currentThinkingPlayer = -1;
+            } else if (data.current_player === 0) {
+                // White's turn (bottom of board)
+                whiteStat.classList.add('active-turn');
+                currentThinkingPlayer = 0;
+            } else {
+                // Black's turn (top of board)
+                blackStat.classList.add('active-turn');
+                currentThinkingPlayer = 1;
+            }
+
+            // Update game status with colors matching player colors (white/black)
+            let statusHTML = 'In Progress';
+            let statusClass = 'badge badge-sm badge-info rounded-full';
+
+            if (data.status === 'finished') {
+                statusHTML = 'GAME OVER';
+                statusClass = 'badge badge-sm badge-neutral font-bold rounded-full';
+            } else if (data.current_player === 0) {
+                // White's turn - match white player badge styling
+                statusHTML = 'White to Move';
+                statusClass = 'badge badge-sm rounded-full font-bold status-badge-white';
+            } else {
+                // Black's turn - match black player badge styling
+                statusHTML = 'Black to Move';
+                statusClass = 'badge badge-sm rounded-full font-bold status-badge-black';
+            }
+
+            document.getElementById('gameStatus').innerHTML = statusHTML;
             document.getElementById('gameStatus').className = statusClass;
-            
+
             // Update chess board
             updateChessBoard(data.board);
-            
+
+            // Send board image to server for vision-capable commentary models
+            sendBoardImageToServer();
+
             // Update move list (replace all moves with full game state)
             if (data.moves && data.moves.length > 0) {
                 updateMoveList(data.moves, null, null, true);
             }
-            
+
             // Update commentary
             if (data.commentary && data.commentary.length > 0) {
-                document.getElementById('commentary').innerHTML = data.commentary[data.commentary.length - 1];
+                const latest = data.commentary[data.commentary.length - 1];
+                document.getElementById('commentary').innerHTML = highlightChessAnnotations(escapeHTML(latest));
             }
         }
-        
+
+        /**
+         * Send current board image to server via WebSocket for vision models
+         */
+        function sendBoardImageToServer() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const boardImage = captureBoardImage();
+                if (boardImage) {
+                    socket.send(JSON.stringify({
+                        type: 'board_image',
+                        image: boardImage
+                    }));
+                    console.log('📷 Board image sent to server');
+                }
+            }
+        }
+
         /**
          * Update the chess board state (p5.js will handle rendering)
          */
@@ -732,39 +1586,84 @@
             if (!board || !Array.isArray(board) || board.length === 0) {
                 board = createEmptyBoard();
             }
-            
+
             // Don't update board during animation
             if (animatingPiece) {
                 window.pendingBoardUpdate = board;
                 log('Board update delayed - animation in progress');
                 return;
             }
-            
+
             gameBoard = normalizeBoard(board);
             log('Board updated, p5.js will redraw');
         }
-        
+
+        /**
+         * p5.js setup function
+         */
+        /**
+         * p5.js preload function
+         */
+        function preload() {
+            console.log("🎨 p5.js preload() called");
+            // Load piece images
+            const pieceNames = ['wP', 'wN', 'wB', 'wR', 'wQ', 'wK', 'bP', 'bN', 'bB', 'bR', 'bQ', 'bK'];
+            for (const name of pieceNames) {
+                pieces[name] = loadImage(`/static/pieces/${name}.svg`);
+            }
+            console.log("✅ All pieces loaded");
+        }
+
         /**
          * p5.js setup function
          */
         function setup() {
+            console.log("🎨 p5.js setup() called");
+            // Start with just the board size
             chessCanvas = createCanvas(boardSize, boardSize);
             chessCanvas.parent('chessBoard');
-            
+
             // Define colors
             lightColor = color(240, 217, 181); // #f0d9b5
             darkColor = color(181, 136, 99);   // #b58863
-            
-            // Initialize with standard position
-            gameBoard = createStandardPosition();
+
+            // Initialize with empty board
+            gameBoard = createEmptyBoard();
+
+            console.log("✅ Setup complete. Canvas created:", boardSize, "x", boardSize);
+            console.log("✅ Pieces loaded:", Object.keys(pieces).length);
+            log("Setup complete. Pieces loaded: " + Object.keys(pieces).length);
+            console.log("Pieces object:", pieces);
         }
-        
+
         /**
          * p5.js draw function - renders every frame
          */
+        let frameCounter = 0;
         function draw() {
+            frameCounter++;
+
+            // Determine if we need capture areas
+            const hasCapturesTop = capturedByBlack.length > 0;
+            const hasCapturesBottom = capturedByWhite.length > 0;
+            const topOffset = hasCapturesTop ? captureAreaHeight : 0;
+            const bottomOffset = hasCapturesBottom ? captureAreaHeight : 0;
+            const requiredHeight = boardSize + topOffset + bottomOffset;
+
+            // Resize canvas if needed
+            if (height !== requiredHeight) {
+                resizeCanvas(boardSize, requiredHeight);
+            }
+
             background(45, 45, 45); // Dark background
-            
+
+            // Update screen shake
+            updateScreenShake();
+
+            // Translate to account for top capture area (if shown) + screen shake
+            push();
+            translate(screenShake.x, topOffset + screenShake.y);
+
             // Draw the board squares
             for (let row = 0; row < 8; row++) {
                 for (let col = 0; col < 8; col++) {
@@ -774,43 +1673,203 @@
                     } else {
                         fill(lightColor);
                     }
-                    
+
                     // Draw square
                     rect(col * squareSize, row * squareSize, squareSize, squareSize);
-                    
+
+                    // Highlight source and destination squares during animation
+                    if (animatingPiece) {
+                        const fromCoords = algebraicToCoords(animatingPiece.fromSquare);
+                        const toCoords = algebraicToCoords(animatingPiece.toSquare);
+
+                        // Source square - yellow highlight
+                        if (row === fromCoords.row && col === fromCoords.col) {
+                            fill(255, 255, 0, 60);
+                            rect(col * squareSize, row * squareSize, squareSize, squareSize);
+                        }
+
+                        // Destination square - red flash for captures, yellow for normal moves
+                        if (row === toCoords.row && col === toCoords.col) {
+                            const t = animatingPiece.progress / animatingPiece.duration;
+                            if (animatingPiece.isCapture) {
+                                // Pulsing red effect for captures
+                                const pulseIntensity = Math.sin(t * Math.PI * 4) * 0.5 + 0.5;
+                                fill(255, 0, 0, 60 + pulseIntensity * 80);
+                            } else {
+                                fill(255, 255, 0, 60);
+                            }
+                            rect(col * squareSize, row * squareSize, squareSize, squareSize);
+                        }
+                    }
+
                     // Draw piece if present
                     const piece = gameBoard[row][col];
                     if (piece && piece.symbol) {
-                        // Set piece color based on piece.color
-                        if (piece.color === 'w') {
-                            fill(255); // White pieces
-                            stroke(0);
-                            strokeWeight(1);
-                        } else {
-                            fill(0); // Black pieces
-                            noStroke();
+                        const img = pieces[piece.symbol];
+                        if (img) {
+                            // Apply new game appearance animation - pieces fall from above
+                            if (gameStartAnimation && gameStartAnimation.progress < gameStartAnimation.duration) {
+                                const key = `${row},${col}`;
+                                const delay = gameStartAnimation.pieceDelays[key] || 0;
+                                const adjustedProgress = Math.max(0, gameStartAnimation.progress - delay);
+                                const pieceDuration = 20; // Each piece takes 20 frames to fall
+                                const t = Math.min(1, adjustedProgress / pieceDuration);
+
+                                if (t > 0) { // Only draw if animation has started for this piece
+                                    const easedT = easeOutCubic(t);
+                                    // Fall from above (start 2 board heights above)
+                                    const fallDistance = boardSize * 2;
+                                    const yOffset = (1 - easedT) * fallDistance;
+
+                                    push();
+                                    image(img,
+                                        col * squareSize,
+                                        row * squareSize - yOffset,
+                                        squareSize,
+                                        squareSize);
+                                    pop();
+                                }
+                            } else {
+                                image(img, col * squareSize, row * squareSize, squareSize, squareSize);
+                            }
                         }
-                        
-                        textAlign(CENTER, CENTER);
-                        textSize(32);
-                        text(piece.symbol, 
-                             col * squareSize + squareSize/2, 
-                             row * squareSize + squareSize/2);
-                        
-                        noStroke(); // Reset stroke
                     }
                 }
             }
-            
-            // Draw coordinates
-            drawCoordinates();
-            
-            // Handle move animation
+
+            // Coordinates removed for cleaner look
+
+            // Update all effects
+            updateParticles();
+            updateAfterimages();
+            updateSpeedLines();
+            updateImpactFlash();
+            updateConfetti();
+            updateKnightRider();
+            updateMoveAnnotation();
+
+            // Draw effects BELOW pieces (trails, dust, afterimages)
+            drawParticles();
+            drawAfterimages();
+            drawSpeedLines();
+
+            // Re-draw static pieces ON TOP of particles for smooth layering
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    const piece = gameBoard[row][col];
+                    if (piece && piece.symbol) {
+                        const img = pieces[piece.symbol];
+                        if (img && !gameStartAnimation) {
+                            image(img, col * squareSize, row * squareSize, squareSize, squareSize);
+                        }
+                    }
+                }
+            }
+
+            // Handle move animation (on top of everything)
             if (animatingPiece) {
                 drawAnimatingPiece();
             }
+
+            // Draw impact flash last (topmost layer)
+            drawImpactFlash();
+
+            // Draw confetti on top of everything
+            drawConfetti();
+
+            // Draw Knight Rider scanner on board edge
+            drawKnightRider();
+
+            // Draw move annotation badge on top of everything
+            drawMoveAnnotation();
+
+            pop(); // End board translation
+
+            // Draw captured pieces on the sides
+            drawCapturedPieces();
+
+            // Update game start animation
+            if (gameStartAnimation && gameStartAnimation.progress < gameStartAnimation.duration) {
+                gameStartAnimation.progress++;
+                if (gameStartAnimation.progress >= gameStartAnimation.duration) {
+                    gameStartAnimation = null;
+                }
+            }
         }
-        
+
+        /**
+         * Draw captured pieces in top and bottom panels (only when pieces are captured)
+         */
+        function drawCapturedPieces() {
+            if (capturedByBlack.length === 0 && capturedByWhite.length === 0) {
+                return; // Nothing to draw
+            }
+
+            const pieceSize = 30; // Smaller size for captured pieces
+            const spacing = 5;
+
+            // Piece values for material count
+            const pieceValues = {
+                'wP': 1, 'bP': 1,
+                'wN': 3, 'bN': 3,
+                'wB': 3, 'bB': 3,
+                'wR': 5, 'bR': 5,
+                'wQ': 9, 'bQ': 9
+            };
+
+            // Calculate material advantage
+            let whiteMaterial = capturedByWhite.reduce((sum, p) => sum + (pieceValues[p.symbol] || 0), 0);
+            let blackMaterial = capturedByBlack.reduce((sum, p) => sum + (pieceValues[p.symbol] || 0), 0);
+
+            push();
+
+            // Top panel - Black's captures (white pieces captured by black) - only if there are captures
+            if (capturedByBlack.length > 0) {
+                // Draw pieces horizontally from left to right
+                capturedByBlack.forEach((piece, index) => {
+                    const img = pieces[piece.symbol];
+                    if (img) {
+                        const x = 5 + (index * (pieceSize + spacing));
+                        const y = (captureAreaHeight - pieceSize) / 2;
+                        image(img, x, y, pieceSize, pieceSize);
+                    }
+                });
+
+                // Show material advantage on the right
+                if (blackMaterial > 0) {
+                    fill(180, 255, 180); // Light green
+                    textAlign(RIGHT, CENTER);
+                    textSize(14);
+                    text(`+${blackMaterial}`, boardSize - 5, captureAreaHeight / 2);
+                }
+            }
+
+            // Bottom panel - White's captures (black pieces captured by white) - only if there are captures
+            if (capturedByWhite.length > 0) {
+                const bottomY = boardSize + (capturedByBlack.length > 0 ? captureAreaHeight : 0);
+
+                // Draw pieces horizontally from left to right
+                capturedByWhite.forEach((piece, index) => {
+                    const img = pieces[piece.symbol];
+                    if (img) {
+                        const x = 5 + (index * (pieceSize + spacing));
+                        const y = bottomY + (captureAreaHeight - pieceSize) / 2;
+                        image(img, x, y, pieceSize, pieceSize);
+                    }
+                });
+
+                // Show material advantage on the right
+                if (whiteMaterial > 0) {
+                    fill(180, 255, 180); // Light green
+                    textAlign(RIGHT, CENTER);
+                    textSize(14);
+                    text(`+${whiteMaterial}`, boardSize - 5, bottomY + captureAreaHeight / 2);
+                }
+            }
+
+            pop();
+        }
+
         /**
          * Draw coordinate labels
          */
@@ -818,45 +1877,37 @@
             fill(200); // Light gray
             textAlign(CENTER, CENTER);
             textSize(12);
-            
+
             // File labels (a-h) at bottom
             for (let col = 0; col < 8; col++) {
-                text(String.fromCharCode(97 + col), 
-                     col * squareSize + squareSize/2, 
-                     boardSize + 15);
-            }
-            
-            // Rank labels (8-1) on right
-            textAlign(LEFT, CENTER);
-            for (let row = 0; row < 8; row++) {
-                text(8 - row, 
-                     boardSize + 5, 
-                     row * squareSize + squareSize/2);
+                text(String.fromCharCode(97 + col),
+                    col * squareSize + squareSize / 2,
+                    boardSize + 15);
             }
         }
-        
+
         /**
          * Simplified board normalization
          */
         function normalizeBoard(board) {
             const normalized = createEmptyBoard();
-            
+
             for (let row = 0; row < 8; row++) {
                 for (let col = 0; col < 8; col++) {
                     if (board[row] && board[row][col]) {
                         const piece = board[row][col];
-                        
+
                         // Handle different piece formats
                         let symbol = '';
                         let color = '';
-                        
+
                         if (typeof piece === 'string') {
                             symbol = piece;
                         } else if (typeof piece === 'object' && piece !== null) {
                             symbol = piece.symbol || '';
                             color = piece.color || '';
                         }
-                        
+
                         // Only add piece if it has a valid symbol
                         if (symbol && typeof symbol === 'string') {
                             normalized[row][col] = {
@@ -867,49 +1918,53 @@
                     }
                 }
             }
-            
+
             return normalized;
         }
-        
-        
-        
+
+
+
         // Handle a move being made
         function handleMoveMade(data) {
             // Update move list
             updateMoveList([data.move], [data.raw_move], [data.interpreted]);
-            
+
             // Store the last move and trigger animation
-            if (data.move && data.move.length >= 4) {
-                lastMove = data.move;
+            // Use UCI format for animation (e2e4) instead of SAN (e4)
+            if (data.uci_move && data.uci_move.length >= 4) {
+                lastMove = data.uci_move;
                 log("Last move set to: " + lastMove);
-                
+
+                console.log("🎬 About to call triggerMoveAnimationWithMove with UCI:", data.uci_move);
                 // Trigger p5.js animation BEFORE the board gets updated
-                triggerMoveAnimationWithMove(data.move);
+                triggerMoveAnimationWithMove(data.uci_move);
+            } else {
+                console.warn("⚠️ No valid UCI move for animation:", data);
             }
-            
+
             // Add visual highlight to commentary
             const commentary = data.commentary || '';
-            const highlightedCommentary = highlightChessAnnotations(commentary);
+            const highlightedCommentary = highlightChessAnnotations(escapeHTML(commentary));
             document.getElementById('commentary').innerHTML = highlightedCommentary;
-            
+
             // Apply any visual effects (simplified - no confetti)
             applyCommentaryEffects(commentary);
-            
-            // Show toast if move was interpreted
+
+            // Log if move was interpreted
             if (data.interpreted) {
-                showToast(`Move interpreted: "${data.raw_move}" → "${data.move}"`, 'info', 4000);
+                console.log(`Move interpreted: "${data.raw_move}" → "${data.move}"`);
             }
         }
-        
+
         // Apply simpler visual effects based on commentary text
         function applyCommentaryEffects(commentary) {
             if (!commentary) return;
-            
+
             const commentaryElement = document.getElementById('commentary');
-            
+
             // Reset previous effects
             commentaryElement.classList.remove('blunder-effect', 'brilliant-effect');
-            
+
             if (commentary.includes('??') || commentary.includes('blunder')) {
                 // Blunder effect - add red text
                 commentaryElement.classList.add('blunder-effect');
@@ -919,196 +1974,680 @@
             }
             // Removed confetti effects since we're using p5.js now
         }
-        
+
         // Handle game over event
         function handleGameOver(data) {
             gameInProgress = false;
-            
-            let winner = '';
-            let result = '';
-            let friendlyExplanation = data.friendly_reason || '';
-            
+
+            // Stop Knight Rider animation (no one is thinking anymore)
+            currentThinkingPlayer = -1;
+
+            // Clear saved game from localStorage when game ends
+            localStorage.removeItem('currentGameId');
+            console.log("🗑️ Cleared saved game from localStorage");
+
+            let emoji = '🏁';
+            let title = 'Game Over';
+            let winnerText = '';
+            let reasonText = '';
+
             if (data.result.result === 'win') {
-                winner = formatPlayerName(data.result.winner_model);
-                result = `<strong>${winner}</strong> won the game!`;
+                const winnerName = escapeHTML(formatPlayerName(data.result.winner_model));
+                const loserName = escapeHTML(formatPlayerName(data.result.loser_model));
+
+                // Store previous winner for next game
+                // Use winner_model to determine if they were playing as white (0) or black (1)
+                const isWinnerWhite = (data.result.winner === 0);
+                previousWinner = {
+                    model: data.result.winner_model,
+                    position: isWinnerWhite ? 0 : 1
+                };
+
+                // Use winner name as title with trophy emoji
+                emoji = '🏆';
+                title = `${winnerName} wins!`;
+                winnerText = ''; // No need for separate winner text since it's in the title
+
+                // Determine concise reason based on game ending
+                const reason = data.result.reason || '';
+                if (reason.includes('checkmate')) {
+                    reasonText = `**${winnerName}** delivered checkmate, trapping **${loserName}**'s king with no escape.`;
+                } else if (reason.includes('invalid move') || reason.includes('illegal move')) {
+                    reasonText = `**${loserName}** lost for using improper chess notation, making the move unreadable; clear notation is essential for conveying intent.`;
+                } else if (reason.includes('move_limit')) {
+                    reasonText = `Game reached 70-move limit. **${winnerName}** wins with superior material count.`;
+                } else if (reason.includes('timeout') || reason.includes('time')) {
+                    reasonText = `**${loserName}** ran out of time. **${winnerName}** wins by timeout.`;
+                } else if (reason.includes('resign')) {
+                    reasonText = `**${loserName}** resigned. **${winnerName}** wins.`;
+                } else {
+                    reasonText = data.friendly_reason || `**${winnerName}** won. ${reason}`;
+                }
             } else if (data.result.result === 'draw') {
-                result = `Game ended in a draw.`;
+                // No winner (draw)
+                previousWinner = null;
+                emoji = '🤝';
+                title = 'Draw!';
+                winnerText = '';
+
+                const reason = data.result.reason || '';
+                if (reason.includes('stalemate')) {
+                    reasonText = 'Stalemate: The player to move has no legal moves but is not in check.';
+                } else if (reason.includes('repetition')) {
+                    reasonText = 'Draw by repetition: The same position occurred three times.';
+                } else if (reason.includes('fifty') || reason.includes('50')) {
+                    reasonText = 'Draw by fifty-move rule: No pawn moves or captures in fifty moves.';
+                } else if (reason.includes('insufficient material')) {
+                    reasonText = 'Draw: Neither side has enough pieces to checkmate.';
+                } else if (reason.includes('move_limit')) {
+                    reasonText = 'Game reached 70-move limit with equal material. Draw.';
+                } else {
+                    reasonText = data.friendly_reason || `Draw. ${reason}`;
+                }
+            } else if (data.result.reason === 'timeout') {
+                // Timeout - no winner
+                previousWinner = null;
+                emoji = '⏱️';
+                title = 'Game Timeout';
+                winnerText = '';
+                reasonText = 'The game exceeded the time limit (1 hour). No winner.';
             } else {
-                result = `Game ended unexpectedly.`;
+                // Unexpected ending - no winner
+                previousWinner = null;
+                emoji = '❓';
+                title = 'Game Ended';
+                winnerText = '';
+                reasonText = data.friendly_reason || 'The game ended unexpectedly.';
             }
-            
-            // If we have a friendly explanation, use it; otherwise, use a technical reason
-            let explanation = friendlyExplanation || `Technical reason: ${data.result.reason || 'unknown'}`;
-            
-            // Create a more informative and user-friendly message
-            let message = `${result}<br><br>${explanation}`;
-            
+
+            // Convert markdown bold (**text**) to HTML
+            reasonText = reasonText.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+            // Update modal elements
+            document.getElementById('gameOverEmoji').textContent = emoji;
+            document.getElementById('gameOverTitle').textContent = title;
+            document.getElementById('gameOverWinner').innerHTML = winnerText;
+            document.getElementById('gameOverReason').innerHTML = reasonText;
+
             // Update UI
             document.getElementById('gameStatus').textContent = 'GAME OVER';
-            document.getElementById('gameStatus').className = 'badge badge-sm badge-neutral font-bold';
-            
-            // Show game over modal with formatted message
-            document.getElementById('gameOverMessage').innerHTML = message;
+            document.getElementById('gameStatus').className = 'badge badge-md badge-neutral font-bold';
+
+            // Show game over modal
             document.getElementById('gameOverModal').showModal();
-            
+
+            // Start confetti celebration!
+            startConfetti();
+
             // Show replay button now that the game is over
             if (boardHistory.length > 1) {
                 document.getElementById('startReplayBtn').style.display = 'block';
             }
-            
+
+            // Store game data for GIF generation (preserve model names from game state)
+            if (boardHistory.length > 1) {
+                window.currentGameData = {
+                    whiteModel: document.getElementById('model1Name').textContent,
+                    blackModel: document.getElementById('model2Name').textContent,
+                    result: data.result.result,
+                    winner: data.result.winner_model
+                };
+            }
+
             // Reload leaderboard
             loadLeaderboard();
+
+            // Start auto-start timer for next game
+            startAutoNewGameTimer();
         }
-        
-        // Update the move list display
-        function updateMoveList(moves, rawMoves, interpreted, replaceAll = false) {
-            const moveList = document.getElementById('moveList');
-            
-            if (!moves || moves.length === 0) {
-                moveList.textContent = 'No moves yet';
-                return;
+
+        /**
+         * Start the auto-start timer for a new game
+         * Shows countdown on modal's NEW GAME button, auto-starts after 5 minutes
+         */
+        function startAutoNewGameTimer() {
+            // Clear any existing timer
+            clearAutoNewGameTimer();
+
+            autoStartCountdown = 300; // Reset to 5 minutes
+            const btn = document.getElementById('playAgainBtn'); // Modal button
+            const originalText = '▶️ New Game';
+
+            // Update button text with countdown
+            function updateButtonText() {
+                const minutes = Math.floor(autoStartCountdown / 60);
+                const seconds = autoStartCountdown % 60;
+                const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                btn.textContent = `▶️ New Game (${timeStr})`;
+                btn.title = 'Click to start now, or wait for auto-start';
             }
-            
-            // If replacing all moves or this is the first move, clear everything
-            if (replaceAll || moveList.textContent === 'No moves yet') {
-                moveList.innerHTML = '';
-            }
-            
-            // Ensure parameters are arrays even if a single move is passed
-            const moveArray = Array.isArray(moves) ? moves : [moves];
-            let rawArray = Array.isArray(rawMoves) ? rawMoves : (rawMoves ? [rawMoves] : null); 
-            let interpretedArray = Array.isArray(interpreted) ? interpreted : (interpreted ? [interpreted] : null);
-            
-            // Add each move to the list
-            moveArray.forEach((move, i) => {
-                const moveNumber = Math.floor((document.querySelectorAll('.move-entry').length + i) / 2) + 1;
-                const isWhiteMove = (document.querySelectorAll('.move-entry').length + i) % 2 === 0;
-                
-                // Format the move display with raw version if interpreted
-                let moveDisplay = move;
-                if (rawArray && rawArray[i] && interpretedArray && interpretedArray[i]) {
-                    moveDisplay = `${move} <span class="text-xs text-gray-500" title="Original input: ${rawArray[i]}">(interpreted)</span>`;
+
+            updateButtonText();
+
+            autoStartTimer = setInterval(() => {
+                autoStartCountdown--;
+                updateButtonText();
+
+                if (autoStartCountdown <= 0) {
+                    clearAutoNewGameTimer();
+                    btn.textContent = originalText;
+                    btn.title = '';
+                    console.log('⏰ Auto-starting new game...');
+                    document.getElementById('gameOverModal').close();
+                    resetGame(); // Start new game automatically
                 }
-                
-                const moveEntry = document.createElement('div');
-                moveEntry.classList.add('move-entry');
-                
-                if (isWhiteMove) {
-                    moveEntry.innerHTML = `<strong>${moveNumber}.</strong> ${moveDisplay}`;
-                } else {
-                    // For black's move, append to the previous entry if it exists
-                    const lastEntry = moveList.lastElementChild;
-                    if (lastEntry && lastEntry.classList.contains('move-entry')) {
-                        lastEntry.innerHTML += ` ${moveDisplay}`;
-                        return;
-                    } else {
-                        moveEntry.innerHTML = `<strong>${moveNumber}...</strong> ${moveDisplay}`;
+            }, 1000);
+
+            console.log('⏰ Auto-start timer started (5 minutes)');
+        }
+
+        /**
+         * Clear the auto-start timer
+         */
+        function clearAutoNewGameTimer() {
+            if (autoStartTimer) {
+                clearInterval(autoStartTimer);
+                autoStartTimer = null;
+                const btn = document.getElementById('playAgainBtn'); // Modal button
+                if (btn) {
+                    btn.textContent = '▶️ New Game';
+                    btn.title = '';
+                }
+                console.log('⏰ Auto-start timer cleared');
+            }
+        }
+
+        /**
+         * Generate GIF animation of the game
+         */
+        async function generateGameGIF() {
+            const btn = document.getElementById('downloadGifBtn');
+            const loading = document.getElementById('gifLoading');
+            const btnText = document.getElementById('gifButtonText');
+
+            // Show loading state
+            loading.style.display = 'inline-block';
+            btnText.textContent = 'Generating...';
+            btn.disabled = true;
+
+            try {
+                console.log("🎬 Starting GIF generation with", boardHistory.length, "frames");
+
+                // Create off-screen canvas for rendering
+                const gifWidth = boardSize;
+                const gifHeight = boardSize + 80; // Extra space for player labels
+                const offscreenCanvas = document.createElement('canvas');
+                offscreenCanvas.width = gifWidth;
+                offscreenCanvas.height = gifHeight;
+                const ctx = offscreenCanvas.getContext('2d');
+
+                // Initialize GIF encoder
+                const gif = new GIF({
+                    workers: 2,
+                    quality: 10,
+                    width: gifWidth,
+                    height: gifHeight,
+                    workerScript: '/static/gif.worker.js'
+                });
+
+                // Get player names from stored game data
+                const gameData = window.currentGameData || {};
+                const whiteName = gameData.whiteModel || 'White';
+                const blackName = gameData.blackModel || 'Black';
+
+                // Render each board state
+                for (let i = 0; i < boardHistory.length; i++) {
+                    const board = boardHistory[i];
+
+                    // Clear canvas
+                    ctx.fillStyle = '#2d2d2d';
+                    ctx.fillRect(0, 0, gifWidth, gifHeight);
+
+                    // Draw player label at top (Black)
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 16px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(`⚫ ${blackName}`, gifWidth / 2, 25);
+
+                    // Draw the chess board
+                    const yOffset = 40;
+                    for (let row = 0; row < 8; row++) {
+                        for (let col = 0; col < 8; col++) {
+                            // Draw square
+                            const isLight = (row + col) % 2 === 1;
+                            ctx.fillStyle = isLight ? '#f0d9b5' : '#b58863';
+                            ctx.fillRect(col * squareSize, row * squareSize + yOffset, squareSize, squareSize);
+
+                            // Draw piece
+                            const piece = board[row][col];
+                            if (piece && piece.symbol && pieces[piece.symbol]) {
+                                const img = pieces[piece.symbol];
+                                ctx.drawImage(img.canvas, col * squareSize, row * squareSize + yOffset, squareSize, squareSize);
+                            }
+                        }
+                    }
+
+                    // Draw player label at bottom (White)
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 16px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(`⚪ ${whiteName}`, gifWidth / 2, gifHeight - 15);
+
+                    // Add frame to GIF (delay based on position)
+                    const delay = i === 0 ? 1000 : (i === boardHistory.length - 1 ? 2000 : 500);
+                    gif.addFrame(ctx, { copy: true, delay: delay });
+
+                    console.log(`Added frame ${i + 1}/${boardHistory.length}`);
+                }
+
+                // Render GIF
+                console.log("🎨 Rendering GIF...");
+                gif.on('finished', function(blob) {
+                    console.log("✅ GIF generated, size:", (blob.size / 1024).toFixed(2), "KB");
+
+                    // Create download link
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `chess-game-${Date.now()}.gif`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+
+                    // Reset button
+                    loading.style.display = 'none';
+                    btnText.textContent = '📥 Download GIF';
+                    btn.disabled = false;
+                });
+
+                gif.render();
+            } catch (error) {
+                console.error("❌ Error generating GIF:", error);
+                alert("Failed to generate GIF. Please try again.");
+
+                // Reset button
+                loading.style.display = 'none';
+                btnText.textContent = '📥 Download GIF';
+                btn.disabled = false;
+            }
+        }
+
+        /**
+         * Capture current board state as base64 PNG for vision models
+         */
+        function captureBoardImage() {
+            try {
+                // Create off-screen canvas
+                const offscreenCanvas = document.createElement('canvas');
+                offscreenCanvas.width = boardSize;
+                offscreenCanvas.height = boardSize;
+                const ctx = offscreenCanvas.getContext('2d');
+
+                // Draw the chess board
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        // Draw square
+                        const isLight = (row + col) % 2 === 1;
+                        ctx.fillStyle = isLight ? '#f0d9b5' : '#b58863';
+                        ctx.fillRect(col * squareSize, row * squareSize, squareSize, squareSize);
+
+                        // Draw piece
+                        const piece = gameBoard[row][col];
+                        if (piece && piece.symbol && pieces[piece.symbol]) {
+                            const img = pieces[piece.symbol];
+                            ctx.drawImage(img.canvas, col * squareSize, row * squareSize, squareSize, squareSize);
+                        }
                     }
                 }
-                
-                moveList.appendChild(moveEntry);
+
+                // Return as base64 PNG (without the data:image/png;base64, prefix)
+                const dataUrl = offscreenCanvas.toDataURL('image/png');
+                return dataUrl.split(',')[1]; // Just the base64 part
+            } catch (error) {
+                console.error('Error capturing board image:', error);
+                return null;
+            }
+        }
+
+        // Update the move list display with table format
+        function updateMoveList(moves, rawMoves, interpreted, replaceAll = false) {
+            const moveList = document.getElementById('moveList');
+
+            if (!moves || moves.length === 0) {
+                moveList.innerHTML = '<table class="move-list"><thead><tr><th>#</th><th>White</th><th>Black</th></tr></thead><tbody><tr><td colspan="3" style="text-align: center; color: #888; padding: 20px;">No moves yet</td></tr></tbody></table>';
+                return;
+            }
+
+            // If replacing all moves or this is the first move, clear everything
+            if (replaceAll || !moveList.querySelector('table')) {
+                moveList.innerHTML = '<table class="move-list"><thead><tr><th>#</th><th>White</th><th>Black</th></tr></thead><tbody id="moveTableBody"></tbody></table>';
+                moveQualities = []; // Reset move qualities
+            }
+
+            // Ensure parameters are arrays even if a single move is passed
+            const moveArray = Array.isArray(moves) ? moves : [moves];
+            let rawArray = Array.isArray(rawMoves) ? rawMoves : (rawMoves ? [rawMoves] : null);
+            let interpretedArray = Array.isArray(interpreted) ? interpreted : (interpreted ? [interpreted] : null);
+
+            const tbody = document.getElementById('moveTableBody');
+            const existingMoves = tbody.querySelectorAll('.move-cell').length;
+
+            // Add each move to the table
+            moveArray.forEach((move, i) => {
+                const globalMoveIndex = existingMoves + i;
+                const moveNumber = Math.floor(globalMoveIndex / 2) + 1;
+                const isWhiteMove = globalMoveIndex % 2 === 0;
+
+                // Format the move display with raw version if interpreted
+                const safeMove = escapeHTML(move);
+                let moveDisplay = safeMove;
+                if (rawArray && rawArray[i] && interpretedArray && interpretedArray[i]) {
+                    const safeRaw = escapeAttr(rawArray[i]);
+                    moveDisplay = `<span title="Original: ${safeRaw}">${safeMove}*</span>`;
+                }
+
+                // Get move quality class if available
+                const qualityClass = moveQualities[globalMoveIndex] || '';
+
+                if (isWhiteMove) {
+                    // Create new row for white's move
+                    const row = document.createElement('tr');
+                    row.dataset.moveNumber = moveNumber;
+
+                    // Add move number cell
+                    const numberCell = document.createElement('td');
+                    numberCell.className = 'move-number';
+                    numberCell.textContent = `${moveNumber}.`;
+                    row.appendChild(numberCell);
+
+                    // Add white's move cell
+                    const whiteCell = document.createElement('td');
+                    const whiteSpan = document.createElement('span');
+                    whiteSpan.className = `move-cell ${qualityClass}`;
+                    whiteSpan.innerHTML = moveDisplay;
+                    whiteSpan.dataset.moveIndex = globalMoveIndex;
+                    whiteCell.appendChild(whiteSpan);
+                    row.appendChild(whiteCell);
+
+                    // Add empty black cell (to be filled later)
+                    const blackCell = document.createElement('td');
+                    blackCell.className = 'black-move-cell';
+                    row.appendChild(blackCell);
+
+                    tbody.appendChild(row);
+                } else {
+                    // Add black's move to the current row
+                    const currentRow = tbody.querySelector(`tr[data-move-number="${moveNumber}"]`);
+                    if (currentRow) {
+                        const blackCell = currentRow.querySelector('.black-move-cell');
+                        const blackSpan = document.createElement('span');
+                        blackSpan.className = `move-cell ${qualityClass}`;
+                        blackSpan.innerHTML = moveDisplay;
+                        blackSpan.dataset.moveIndex = globalMoveIndex;
+                        blackCell.appendChild(blackSpan);
+                    } else {
+                        // Black's first move without white - create new row
+                        const row = document.createElement('tr');
+                        row.dataset.moveNumber = moveNumber;
+
+                        // Move number
+                        const numberCell = document.createElement('td');
+                        numberCell.className = 'move-number';
+                        numberCell.textContent = `${moveNumber}...`;
+                        row.appendChild(numberCell);
+
+                        // Empty white cell
+                        const whiteCell = document.createElement('td');
+                        row.appendChild(whiteCell);
+
+                        // Black's move
+                        const blackCell = document.createElement('td');
+                        const blackSpan = document.createElement('span');
+                        blackSpan.className = `move-cell ${qualityClass}`;
+                        blackSpan.innerHTML = moveDisplay;
+                        blackSpan.dataset.moveIndex = globalMoveIndex;
+                        blackCell.appendChild(blackSpan);
+                        row.appendChild(blackCell);
+
+                        tbody.appendChild(row);
+                    }
+                }
             });
-            
+
             // Scroll to bottom
             moveList.scrollTop = moveList.scrollHeight;
         }
-        
+
+        // Extract move quality from commentary
+        function extractMoveQuality(commentary) {
+            if (!commentary) return null;
+
+            const text = commentary.toLowerCase();
+
+            // Check for annotations in order of specificity
+            if (text.includes('!!') || text.includes('brilliant')) return 'move-brilliant';
+            if (text.includes('??') || text.includes('blunder')) return 'move-blunder';
+            if (text.includes('?!') || text.includes('dubious')) return 'move-dubious';
+            if (text.includes('!?') || text.includes('interesting')) return 'move-interesting';
+            if (text.includes('?') || text.includes('mistake') || text.includes('inaccuracy')) return 'move-mistake';
+            if (text.includes('!') || text.includes('good move') || text.includes('excellent')) return 'move-good';
+
+            return null;
+        }
+
+        // Update move quality based on commentary
+        function updateMoveQuality(moveIndex, quality) {
+            if (!quality) return;
+
+            moveQualities[moveIndex] = quality;
+
+            // Map quality class to tooltip text
+            const qualityTitles = {
+                'move-brilliant': 'Brilliant move!! - An exceptionally strong move',
+                'move-good': 'Good move! - A strong, solid move',
+                'move-interesting': 'Interesting move!? - A creative but unclear move',
+                'move-dubious': 'Dubious move?! - A questionable choice',
+                'move-mistake': 'Mistake? - A weak move that loses advantage',
+                'move-blunder': 'Blunder?? - A serious error'
+            };
+
+            // Update the visual of the move cell
+            const moveCell = document.querySelector(`.move-cell[data-move-index="${moveIndex}"]`);
+            if (moveCell) {
+                // Remove existing quality classes
+                moveCell.classList.remove('move-brilliant', 'move-good', 'move-interesting',
+                                         'move-dubious', 'move-mistake', 'move-blunder');
+                // Add new quality class and tooltip
+                moveCell.classList.add(quality);
+                moveCell.title = qualityTitles[quality] || '';
+            }
+        }
+
         // Reset the game
         function resetGame() {
+            // Clear auto-start timer if running
+            clearAutoNewGameTimer();
+
             if (socket) {
                 socket.close();
             }
-            
+
             gameInProgress = false;
             currentGameId = null;
             lastMove = null;
-            
+            gameStartAnimation = null; // Reset animation state
+            animatingPiece = null;     // Clear any ongoing animation
+            animationQueue = [];       // Clear animation queue
+            capturedByWhite = []; // Clear captures
+            capturedByBlack = []; // Clear captures
+            moveQualities = []; // Clear move quality tracking
+            particles = []; // Clear particle effects
+            trailPoints = []; // Clear motion trails
+            afterimages = []; // Clear afterimages
+            speedLines = []; // Clear speed lines
+            screenShake = { x: 0, y: 0, intensity: 0 };
+            impactFlash = { active: false, x: 0, y: 0, radius: 0, alpha: 0 };
+
+            // Clear Knight Rider scanner
+            currentThinkingPlayer = -1;
+            knightRiderPos = 0;
+            knightRiderDir = 1;
+
+            // Clear move annotation badge
+            clearMoveAnnotation();
+
+            // Stop confetti
+            confetti = [];
+            confettiActive = false;
+
             // Clear replay history
             clearReplayHistory();
-            
+
             // Close modal if it's open
             try {
                 document.getElementById('gameOverModal').close();
             } catch (e) {
                 log("Modal was not open", "debug");
             }
-            
+
             // Reset UI
             initChessBoard();
             document.getElementById('gameStatus').textContent = 'WAITING';
-            document.getElementById('gameStatus').className = 'badge badge-sm font-bold bg-gray-200 text-gray-700';
+            document.getElementById('gameStatus').className = 'badge badge-md font-bold bg-gray-200 text-gray-700';
             document.getElementById('model1Name').textContent = '-';
             document.getElementById('model2Name').textContent = '-';
+
+            // Reset player highlighting
+            const whiteStat = document.querySelector('.stat:nth-child(1)');
+            const blackStat = document.querySelector('.stat:nth-child(2)');
+            whiteStat.classList.remove('active-turn');
+            blackStat.classList.remove('active-turn');
             document.getElementById('commentary').textContent = 'Waiting for game to start...';
             document.getElementById('moveList').textContent = 'No moves yet';
-            
+
             // Hide replay button
             document.getElementById('startReplayBtn').style.display = 'none';
-            
-            // Show toast to indicate a new game is starting
-            showToast('Starting a new game...', 'success');
-            
+
             // Start a new game (with a slight delay to ensure UI updates first)
             setTimeout(() => {
-                startGame();
+                startGame(true);  // Force create a new game
             }, 100);
         }
-        
+
         // Replay functionality
         function startReplay() {
             if (boardHistory.length <= 1) {
-                showToast('Not enough moves to replay', 'warning');
+                console.log('Not enough moves to replay');
                 return;
             }
-            
+
             isReplaying = true;
-            
+
             // Show replay controls
             document.getElementById('replayControls').style.display = 'flex';
             document.getElementById('startReplayBtn').disabled = true;
-            
+
+            // Hide commentary section during replay
+            const commentaryCard = document.querySelector('.card.bg-base-200.shadow-sm');
+            if (commentaryCard) {
+                commentaryCard.style.display = 'none';
+            }
+
             // Start at the beginning
             replayMove(0);
-            
-            showToast('Replay mode started', 'info');
         }
-        
+
         function replayMove(index) {
             // Validate index bounds
             if (index < 0) index = 0;
             if (index >= boardHistory.length) index = boardHistory.length - 1;
-            
+
             // Update the current index
             currentHistoryIndex = index;
-            
+
             // Update counter display
             document.getElementById('replayCounter').textContent = `${currentHistoryIndex + 1}/${boardHistory.length}`;
-            
+
             // Display the board state at this index
             const boardState = boardHistory[currentHistoryIndex];
             updateChessBoard(boardState);
-            
+
             // Disable/enable navigation buttons based on position
             document.getElementById('replayFirst').disabled = (currentHistoryIndex === 0);
             document.getElementById('replayPrev').disabled = (currentHistoryIndex === 0);
             document.getElementById('replayNext').disabled = (currentHistoryIndex === boardHistory.length - 1);
             document.getElementById('replayLast').disabled = (currentHistoryIndex === boardHistory.length - 1);
         }
-        
+
+        function toggleReplayAutoplay() {
+            const btn = document.getElementById('replayPlayPause');
+
+            if (isReplayPlaying) {
+                // Stop autoplay
+                stopReplayAutoplay();
+                btn.textContent = '▶️';
+                btn.title = 'Play';
+            } else {
+                // Start autoplay
+                startReplayAutoplay();
+                btn.textContent = '⏸️';
+                btn.title = 'Pause';
+            }
+        }
+
+        function startReplayAutoplay() {
+            if (isReplayPlaying) return;
+
+            isReplayPlaying = true;
+            console.log("▶️ Starting replay autoplay");
+
+            // Auto-advance every 1 second
+            replayInterval = setInterval(() => {
+                if (currentHistoryIndex < boardHistory.length - 1) {
+                    replayMove(currentHistoryIndex + 1);
+                } else {
+                    // Reached the end, stop autoplay
+                    stopReplayAutoplay();
+                    document.getElementById('replayPlayPause').textContent = '▶️';
+                    document.getElementById('replayPlayPause').title = 'Play';
+                }
+            }, 1000);
+        }
+
+        function stopReplayAutoplay() {
+            if (!isReplayPlaying) return;
+
+            isReplayPlaying = false;
+            console.log("⏸️ Stopping replay autoplay");
+
+            if (replayInterval) {
+                clearInterval(replayInterval);
+                replayInterval = null;
+            }
+        }
+
         function exitReplay() {
             isReplaying = false;
-            
+            stopReplayAutoplay();
+
             // Hide replay controls
             document.getElementById('replayControls').style.display = 'none';
             document.getElementById('startReplayBtn').disabled = false;
-            
+
+            // Show commentary section again
+            const commentaryCard = document.querySelector('.card.bg-base-200.shadow-sm');
+            if (commentaryCard) {
+                commentaryCard.style.display = 'block';
+            }
+
+            // Reset button to play icon
+            document.getElementById('replayPlayPause').textContent = '▶️';
+            document.getElementById('replayPlayPause').title = 'Play';
+
             // Return to the latest board state
             currentHistoryIndex = boardHistory.length - 1;
             updateChessBoard(boardHistory[currentHistoryIndex]);
-            
-            showToast('Exited replay mode', 'info');
         }
-        
+
         // Clear replay history when a new game starts
         function clearReplayHistory() {
             boardHistory = [];
@@ -1117,51 +2656,14 @@
             document.getElementById('replayControls').style.display = 'none';
             document.getElementById('startReplayBtn').disabled = true;
         }
-        
-        // Show a toast message
-        function showToast(message, type = 'info', duration = 3000) {
-            const toast = document.getElementById('toast');
-            const toastMessage = document.getElementById('toastMessage');
-            
-            // Set the message
-            toastMessage.textContent = message;
-            
-            // Set the alert type
-            const alertElement = toast.querySelector('.alert');
-            alertElement.className = 'alert'; // Reset class
-            
-            switch (type) {
-                case 'success':
-                    alertElement.classList.add('alert-success');
-                    break;
-                case 'warning':
-                    alertElement.classList.add('alert-warning');
-                    break;
-                case 'error':
-                    alertElement.classList.add('alert-error');
-                    break;
-                case 'info':
-                default:
-                    alertElement.classList.add('alert-info');
-                    break;
-            }
-            
-            // Show the toast
-            toast.classList.remove('hidden');
-            
-            // Hide after duration
-            setTimeout(() => {
-                toast.classList.add('hidden');
-            }, duration);
-        }
-        
+
         // Highlight chess annotation symbols in commentary
         function highlightChessAnnotations(text) {
             if (!text || typeof text !== 'string') return text;
-            
+
             // Skip if already processed (contains HTML tags)
             if (text.includes('<span')) return text;
-            
+
             const annotations = [
                 // Order matters: longer patterns first to avoid partial matches
                 ['!!', '✨'],    // Brilliant move
@@ -1181,9 +2683,9 @@
                 ['+', '👑'],     // Check
                 ['#', '🏆']      // Checkmate
             ];
-            
+
             let result = text;
-            
+
             // Replace annotation symbols with emojis
             for (const [symbol, emoji] of annotations) {
                 // Use word boundaries and exact matches to avoid partial replacements
@@ -1191,105 +2693,1008 @@
                 const regex = new RegExp(`\\b${escapedSymbol}\\b|(?<=\\s)${escapedSymbol}(?=\\s)|(?<=\\s)${escapedSymbol}$|^${escapedSymbol}(?=\\s)|^${escapedSymbol}$`, 'g');
                 result = result.replace(regex, emoji);
             }
-            
+
             return result;
         }
-        
+
         /**
          * Animate piece movement with p5.js
          */
         function animateMove(fromSquare, toSquare, piece) {
-            if (!fromSquare || !toSquare || !piece) return;
-            
+            if (!fromSquare || !toSquare || !piece) {
+                console.log('Animation skipped - missing data:', {fromSquare, toSquare, piece});
+                return;
+            }
+
             const fromCoords = algebraicToCoords(fromSquare);
             const toCoords = algebraicToCoords(toSquare);
-            
+
+            console.log(`Starting animation: ${fromSquare} -> ${toSquare}`, piece);
+
+            // Check if this is a capture
+            const capturedPiece = gameBoard[toCoords.row][toCoords.col];
+            const isCapture = capturedPiece && capturedPiece.symbol;
+
+            if (isCapture) {
+                // VALIDATION: Ensure captured piece is opponent's color (prevent same-color capture display bug)
+                if (capturedPiece.color === piece.color) {
+                    console.error('❌ BUG PREVENTED: Attempted to capture same-color piece!', {
+                        movingPiece: piece.symbol,
+                        capturedPiece: capturedPiece.symbol,
+                        color: piece.color,
+                        move: fromSquare + '->' + toSquare
+                    });
+                    // Skip capture display for same-color pieces
+                    console.log('⚠️ Skipping invalid capture display');
+                } else {
+                    console.log('🔥 CAPTURE detected!', capturedPiece.symbol, 'at', toSquare);
+                    // Store captured piece (only if opponent's color)
+                    if (piece.color === 'w') {
+                        // White captured a black piece
+                        capturedByWhite.push(capturedPiece);
+                        console.log('⚪ White captured:', capturedPiece.symbol);
+                    } else {
+                        // Black captured a white piece
+                        capturedByBlack.push(capturedPiece);
+                        console.log('⚫ Black captured:', capturedPiece.symbol);
+                    }
+                }
+            }
+
+            // If page is not visible, skip animation and just update board directly
+            if (!isPageVisible) {
+                console.log('👁️ Page hidden, skipping animation - updating board directly');
+                // Update the board immediately without animation
+                gameBoard[toCoords.row][toCoords.col] = { symbol: piece.symbol, color: piece.color };
+                gameBoard[fromCoords.row][fromCoords.col] = { symbol: '', color: '' };
+                return;
+            }
+
+            // If animation is already in progress, add to queue
+            if (animatingPiece) {
+                console.log(`⚠️ Animation in progress, queuing (queue size: ${animationQueue.length})`);
+                animationQueue.push({ fromSquare, toSquare, piece });
+                return;
+            }
+
             // Set up animation
             animatingPiece = {
                 symbol: piece.symbol,
                 color: piece.color,
-                fromX: fromCoords.col * squareSize + squareSize/2,
-                fromY: fromCoords.row * squareSize + squareSize/2,
-                toX: toCoords.col * squareSize + squareSize/2,
-                toY: toCoords.row * squareSize + squareSize/2,
-                currentX: fromCoords.col * squareSize + squareSize/2,
-                currentY: fromCoords.row * squareSize + squareSize/2,
+                fromX: fromCoords.col * squareSize + squareSize / 2,
+                fromY: fromCoords.row * squareSize + squareSize / 2,
+                toX: toCoords.col * squareSize + squareSize / 2,
+                toY: toCoords.row * squareSize + squareSize / 2,
+                currentX: fromCoords.col * squareSize + squareSize / 2,
+                currentY: fromCoords.row * squareSize + squareSize / 2,
                 progress: 0,
-                duration: 45, // frames (smoother animation)
+                duration: 40, // frames (0.67 seconds at 60fps - faster)
                 fromSquare: fromSquare,
-                toSquare: toSquare
+                toSquare: toSquare,
+                isCapture: isCapture,
+                capturedPiece: isCapture ? capturedPiece : null
             };
-            
+
             // Clear the piece from the from square during animation
-            gameBoard[fromCoords.row][fromCoords.col] = {symbol: '', color: ''};
+            gameBoard[fromCoords.row][fromCoords.col] = { symbol: '', color: '' };
+
+            // Also clear the destination square if it's a capture (will be redrawn with fade effect)
+            if (isCapture) {
+                gameBoard[toCoords.row][toCoords.col] = { symbol: '', color: '' };
+            }
+
+            // Clear previous move annotation (new one will be set when commentary arrives)
+            currentMoveAnnotation = null;
         }
-        
+
         /**
-         * Draw the animating piece
+         * Draw the animating piece with dynamic lighting and particles
          */
         function drawAnimatingPiece() {
-            if (!animatingPiece) return;
-            
+            if (!animatingPiece) {
+                console.warn("⚠️ drawAnimatingPiece called but animatingPiece is null!");
+                return;
+            }
+
             // Update animation progress
             animatingPiece.progress += 1;
-            
-            // Calculate current position using easeIn animation
+
+            // Calculate current position using easeInOutCubic animation
             const t = animatingPiece.progress / animatingPiece.duration;
             const easedT = easeInOutCubic(t);
-            
-            animatingPiece.currentX = lerp(animatingPiece.fromX, animatingPiece.toX, easedT);
-            animatingPiece.currentY = lerp(animatingPiece.fromY, animatingPiece.toY, easedT);
-            
-            // Draw the moving piece with proper color
-            if (animatingPiece.color === 'w') {
-                fill(255); // White pieces
-                stroke(0);
-                strokeWeight(1);
-            } else {
-                fill(0); // Black pieces
-                noStroke();
+
+            // Base X/Y position (linear interpolation with easing)
+            const baseX = lerp(animatingPiece.fromX, animatingPiece.toX, easedT);
+            const baseY = lerp(animatingPiece.fromY, animatingPiece.toY, easedT);
+
+            // ARC TRAJECTORY - piece rises up during movement
+            const arcHeight = 25; // How high the piece rises
+            const arcOffset = Math.sin(t * Math.PI) * arcHeight;
+
+            animatingPiece.currentX = baseX;
+            animatingPiece.currentY = baseY - arcOffset; // Subtract to go UP
+
+            // Calculate scale (piece gets larger in the middle of the move)
+            const scaleT = Math.sin(t * Math.PI); // 0 -> 1 -> 0
+            const scale = 1 + scaleT * 0.2; // Scale up to 1.2x at peak
+
+            // Movement direction for speed lines
+            const dx = animatingPiece.toX - animatingPiece.fromX;
+            const dy = animatingPiece.toY - animatingPiece.fromY;
+
+            // CREATE AFTERIMAGES every few frames
+            if (animatingPiece.progress % 3 === 0 && t < 0.9) {
+                createAfterimage(
+                    animatingPiece.currentX,
+                    animatingPiece.currentY,
+                    animatingPiece.symbol,
+                    120 * (1 - t) // Fade afterimages as animation progresses
+                );
             }
-            
-            textAlign(CENTER, CENTER);
-            textSize(32);
-            text(animatingPiece.symbol, animatingPiece.currentX, animatingPiece.currentY);
-            
-            noStroke(); // Reset stroke
-            
+
+            // EMIT SPEED LINES during fast part of movement
+            if (t > 0.2 && t < 0.8 && animatingPiece.progress % 2 === 0) {
+                emitSpeedLines(
+                    animatingPiece.currentX,
+                    animatingPiece.currentY,
+                    dx, dy,
+                    animatingPiece.color
+                );
+            }
+
+            // Emit trail particles for motion blur effect
+            emitTrailParticles(animatingPiece.currentX, animatingPiece.currentY, animatingPiece.color);
+
+            // Draw captured piece fading out with explosion effect
+            if (animatingPiece.isCapture && animatingPiece.capturedPiece) {
+                const toCoords = algebraicToCoords(animatingPiece.toSquare);
+                const capturedImg = pieces[animatingPiece.capturedPiece.symbol];
+                const captureX = toCoords.col * squareSize + squareSize / 2;
+                const captureY = toCoords.row * squareSize + squareSize / 2;
+
+                // Trigger explosion at impact (t > 0.7)
+                if (t > 0.7 && !animatingPiece.explosionTriggered) {
+                    emitCaptureExplosion(captureX, captureY);
+                    animatingPiece.explosionTriggered = true;
+                }
+
+                if (capturedImg) {
+                    push();
+                    // Fade out and shake effect with increased intensity
+                    const fadeOpacity = (1 - t) * 255;
+                    const shakeIntensity = t > 0.7 ? 12 : 4;
+                    const shake = Math.sin(t * Math.PI * 15) * shakeIntensity;
+                    const shakeY = Math.cos(t * Math.PI * 12) * shakeIntensity * 0.5;
+
+                    // Add red tint as capture approaches
+                    if (t > 0.5) {
+                        const redTint = (t - 0.5) * 2 * 150;
+                        tint(255, 255 - redTint, 255 - redTint, fadeOpacity);
+                    } else {
+                        tint(255, fadeOpacity);
+                    }
+
+                    // Captured piece also scales down
+                    const captureScale = 1 - (t > 0.7 ? (t - 0.7) * 2 : 0);
+
+                    image(capturedImg,
+                        toCoords.col * squareSize + shake + (squareSize * (1 - captureScale)) / 2,
+                        toCoords.row * squareSize + shakeY + (squareSize * (1 - captureScale)) / 2,
+                        squareSize * captureScale,
+                        squareSize * captureScale
+                    );
+                    pop();
+                }
+            }
+
+            // Draw dynamic glow around moving piece (stronger glow!)
+            const glowIntensity = 0.8 + scaleT * 1.2; // Much stronger glow
+            drawPieceGlow(animatingPiece.currentX, animatingPiece.currentY, animatingPiece.color, glowIntensity);
+
+            // Draw shadow on the ground (offset based on arc height)
+            push();
+            const shadowAlpha = 40 + scaleT * 30;
+            const shadowScale = 1 - arcOffset / 100; // Shadow gets smaller when piece is higher
+            tint(0, 0, 0, shadowAlpha);
+            const shadowOffset = 4 + arcOffset * 0.3;
+            const img = pieces[animatingPiece.symbol];
+            if (img) {
+                // Shadow stays on the ground (at baseY, not currentY)
+                image(img,
+                    baseX - (squareSize * shadowScale) / 2 + shadowOffset,
+                    baseY - (squareSize * shadowScale) / 2 + shadowOffset,
+                    squareSize * shadowScale,
+                    squareSize * shadowScale
+                );
+            } else {
+                console.error("❌ Missing piece image for:", animatingPiece.symbol);
+            }
+            pop();
+
+            // Draw the moving piece with scale, rotation hint, and brightness boost
+            push();
+            // Slight brightness boost during movement
+            const brightness = 1 + scaleT * 0.1;
+            tint(255 * brightness, 255 * brightness, 255 * brightness);
+            if (img) {
+                image(img,
+                    animatingPiece.currentX - (squareSize * scale) / 2,
+                    animatingPiece.currentY - (squareSize * scale) / 2,
+                    squareSize * scale,
+                    squareSize * scale
+                );
+            }
+            pop();
+
             // End animation
             if (animatingPiece.progress >= animatingPiece.duration) {
                 const toCoords = algebraicToCoords(animatingPiece.toSquare);
+                const landX = toCoords.col * squareSize + squareSize / 2;
+                const landY = toCoords.row * squareSize + squareSize / 2;
+
+                // LANDING EFFECTS - dust cloud and screen shake
+                // Red particles for captures, tan for normal moves
+                emitLandingDust(landX, landY, animatingPiece.isCapture);
+                triggerScreenShake(animatingPiece.isCapture ? 8 : 4); // Bigger shake on captures
+
                 gameBoard[toCoords.row][toCoords.col] = {
                     symbol: animatingPiece.symbol,
                     color: animatingPiece.color
                 };
+                console.log("✅ Move animation completed!", animatingPiece.fromSquare, "->", animatingPiece.toSquare);
                 animatingPiece = null;
                 log("Animation completed");
-                
+
+                // Show any pending annotation badge with pop-in effect
+                showPendingAnnotation();
+
                 // Update board with any pending changes after animation
                 if (window.pendingBoardUpdate) {
+                    console.log("📋 Applying pending board update after animation");
                     gameBoard = normalizeBoard(window.pendingBoardUpdate);
                     window.pendingBoardUpdate = null;
                     log('Applied pending board update after animation');
                 }
+
+                // Process next animation in queue
+                processNextAnimation();
             }
         }
-        
+
+        /**
+         * Process the next animation in the queue
+         */
+        function processNextAnimation() {
+            if (animationQueue.length === 0 || animatingPiece) {
+                return;
+            }
+
+            // If page is hidden, skip all animations and apply board updates directly
+            if (!isPageVisible) {
+                console.log(`👁️ Page hidden, fast-forwarding ${animationQueue.length} queued animations`);
+                while (animationQueue.length > 0) {
+                    const anim = animationQueue.shift();
+                    const fromCoords = algebraicToCoords(anim.fromSquare);
+                    const toCoords = algebraicToCoords(anim.toSquare);
+                    gameBoard[toCoords.row][toCoords.col] = { symbol: anim.piece.symbol, color: anim.piece.color };
+                    gameBoard[fromCoords.row][fromCoords.col] = { symbol: '', color: '' };
+                }
+                return;
+            }
+
+            const queued = animationQueue.shift();
+            console.log(`▶️ Playing queued animation (${animationQueue.length} remaining)`);
+
+            // Small delay to ensure board state is updated
+            setTimeout(() => {
+                animateMove(queued.fromSquare, queued.toSquare, queued.piece);
+            }, 10);
+        }
+
         /**
          * Easing functions for smooth animation
          */
         function easeOutCubic(t) {
             return 1 - Math.pow(1 - t, 3);
         }
-        
+
         function easeInCubic(t) {
             return t * t * t;
         }
-        
+
         function easeInOutCubic(t) {
             return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
         }
-        
+
+        /**
+         * Particle System for visual effects
+         */
+        function createParticle(x, y, type = 'trail', color = null) {
+            const isCapture = type === 'capture' || type === 'explosion';
+            const isTrail = type === 'trail';
+            const isSpark = type === 'spark';
+
+            // Color based on type
+            let particleColor;
+            if (color) {
+                particleColor = color;
+            } else if (isCapture) {
+                // Red/orange explosion colors
+                particleColor = [255, random(100, 200), 0];
+            } else if (isSpark) {
+                // Golden sparks
+                particleColor = [255, random(200, 255), random(50, 150)];
+            } else {
+                // Trail - soft glow based on piece color
+                particleColor = [200, 200, 255];
+            }
+
+            return {
+                x: x,
+                y: y,
+                vx: isCapture ? random(-4, 4) : (isSpark ? random(-2, 2) : random(-0.5, 0.5)),
+                vy: isCapture ? random(-6, 2) : (isSpark ? random(-3, 1) : random(-0.5, 0.5)),
+                life: isCapture ? random(30, 60) : (isSpark ? random(20, 40) : random(15, 30)),
+                maxLife: isCapture ? 60 : (isSpark ? 40 : 30),
+                size: isCapture ? random(4, 10) : (isSpark ? random(2, 5) : random(3, 8)),
+                color: particleColor,
+                type: type,
+                gravity: isCapture ? 0.15 : 0,
+                rotation: random(0, TWO_PI),
+                rotationSpeed: random(-0.2, 0.2)
+            };
+        }
+
+        function updateParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+
+                // Update position
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += p.gravity;
+                p.life--;
+                p.rotation += p.rotationSpeed;
+
+                // Fade out trail particles slower
+                if (p.type === 'trail') {
+                    p.vx *= 0.95;
+                    p.vy *= 0.95;
+                }
+
+                // Remove dead particles
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            // Update trail points
+            for (let i = trailPoints.length - 1; i >= 0; i--) {
+                trailPoints[i].life--;
+                if (trailPoints[i].life <= 0) {
+                    trailPoints.splice(i, 1);
+                }
+            }
+        }
+
+        function drawParticles() {
+            push();
+            noStroke();
+            blendMode(ADD); // Additive blending for glow effect
+
+            // Draw trail (motion blur effect)
+            for (let i = 0; i < trailPoints.length; i++) {
+                const tp = trailPoints[i];
+                const alpha = (tp.life / tp.maxLife) * 150;
+                const size = tp.size * (tp.life / tp.maxLife);
+
+                fill(tp.color[0], tp.color[1], tp.color[2], alpha);
+                ellipse(tp.x, tp.y, size, size);
+            }
+
+            // Draw particles
+            for (const p of particles) {
+                const alpha = (p.life / p.maxLife) * 255;
+                const size = p.size * (p.life / p.maxLife);
+
+                push();
+                translate(p.x, p.y);
+                rotate(p.rotation);
+
+                if (p.type === 'capture' || p.type === 'explosion') {
+                    // Explosion particles - irregular shapes
+                    fill(p.color[0], p.color[1], p.color[2], alpha);
+                    beginShape();
+                    for (let a = 0; a < TWO_PI; a += PI / 3) {
+                        const r = size * random(0.5, 1);
+                        vertex(cos(a) * r, sin(a) * r);
+                    }
+                    endShape(CLOSE);
+
+                    // Inner glow
+                    fill(255, 255, 200, alpha * 0.5);
+                    ellipse(0, 0, size * 0.5, size * 0.5);
+                } else if (p.type === 'spark') {
+                    // Sparks - elongated shapes
+                    fill(p.color[0], p.color[1], p.color[2], alpha);
+                    ellipse(0, 0, size * 2, size * 0.5);
+                } else {
+                    // Trail particles - soft circles with glow
+                    // Outer glow
+                    fill(p.color[0], p.color[1], p.color[2], alpha * 0.3);
+                    ellipse(0, 0, size * 2, size * 2);
+                    // Core
+                    fill(p.color[0], p.color[1], p.color[2], alpha);
+                    ellipse(0, 0, size, size);
+                }
+
+                pop();
+            }
+
+            pop();
+            blendMode(BLEND); // Reset blend mode
+        }
+
+        function emitTrailParticles(x, y, pieceColor) {
+            // Add trail point for motion blur
+            const trailColor = pieceColor === 'w' ? [220, 220, 255] : [180, 150, 200];
+            trailPoints.push({
+                x: x,
+                y: y,
+                life: 12,
+                maxLife: 12,
+                size: squareSize * 0.6,
+                color: trailColor
+            });
+
+            // Emit small particles occasionally
+            if (random() < 0.4) {
+                particles.push(createParticle(
+                    x + random(-10, 10),
+                    y + random(-10, 10),
+                    'trail',
+                    trailColor
+                ));
+            }
+        }
+
+        function emitCaptureExplosion(x, y) {
+            // Create explosion particles
+            for (let i = 0; i < 35; i++) {
+                particles.push(createParticle(x, y, 'capture'));
+            }
+            // Add sparks
+            for (let i = 0; i < 20; i++) {
+                particles.push(createParticle(x, y, 'spark'));
+            }
+            // Trigger screen shake
+            triggerScreenShake(12);
+            // Trigger impact flash
+            triggerImpactFlash(x, y, 80);
+        }
+
+        // Create afterimage ghost of the piece
+        function createAfterimage(x, y, symbol, alpha) {
+            afterimages.push({
+                x: x,
+                y: y,
+                symbol: symbol,
+                alpha: alpha,
+                life: 8,
+                maxLife: 8,
+                scale: 1.0
+            });
+        }
+
+        // Update and draw afterimages
+        function updateAfterimages() {
+            for (let i = afterimages.length - 1; i >= 0; i--) {
+                afterimages[i].life--;
+                afterimages[i].alpha *= 0.85;
+                afterimages[i].scale *= 0.98;
+                if (afterimages[i].life <= 0) {
+                    afterimages.splice(i, 1);
+                }
+            }
+        }
+
+        function drawAfterimages() {
+            for (const ghost of afterimages) {
+                const img = pieces[ghost.symbol];
+                if (img) {
+                    push();
+                    tint(255, ghost.alpha);
+                    const size = squareSize * ghost.scale;
+                    image(img, ghost.x - size/2, ghost.y - size/2, size, size);
+                    pop();
+                }
+            }
+        }
+
+        // Screen shake effect
+        function triggerScreenShake(intensity) {
+            screenShake.intensity = intensity;
+        }
+
+        function updateScreenShake() {
+            if (screenShake.intensity > 0) {
+                screenShake.x = random(-screenShake.intensity, screenShake.intensity);
+                screenShake.y = random(-screenShake.intensity, screenShake.intensity);
+                screenShake.intensity *= 0.85; // Decay
+                if (screenShake.intensity < 0.5) {
+                    screenShake.intensity = 0;
+                    screenShake.x = 0;
+                    screenShake.y = 0;
+                }
+            }
+        }
+
+        // Impact flash when piece lands
+        function triggerImpactFlash(x, y, radius) {
+            impactFlash = {
+                active: true,
+                x: x,
+                y: y,
+                radius: radius,
+                alpha: 200
+            };
+        }
+
+        function updateImpactFlash() {
+            if (impactFlash.active) {
+                impactFlash.alpha *= 0.8;
+                impactFlash.radius *= 1.15;
+                if (impactFlash.alpha < 5) {
+                    impactFlash.active = false;
+                }
+            }
+        }
+
+        function drawImpactFlash() {
+            if (impactFlash.active) {
+                push();
+                noStroke();
+                blendMode(ADD);
+                // Outer glow
+                fill(255, 255, 200, impactFlash.alpha * 0.3);
+                ellipse(impactFlash.x, impactFlash.y, impactFlash.radius * 2, impactFlash.radius * 2);
+                // Inner bright core
+                fill(255, 255, 255, impactFlash.alpha);
+                ellipse(impactFlash.x, impactFlash.y, impactFlash.radius * 0.5, impactFlash.radius * 0.5);
+                pop();
+                blendMode(BLEND);
+            }
+        }
+
+        // Speed lines emanating from moving piece
+        function createSpeedLine(x, y, angle, pieceColor) {
+            const lineColor = pieceColor === 'w' ? [200, 220, 255] : [220, 180, 255];
+            speedLines.push({
+                x: x,
+                y: y,
+                angle: angle,
+                length: random(20, 50),
+                life: 10,
+                maxLife: 10,
+                color: lineColor,
+                width: random(1, 3)
+            });
+        }
+
+        function updateSpeedLines() {
+            for (let i = speedLines.length - 1; i >= 0; i--) {
+                speedLines[i].life--;
+                if (speedLines[i].life <= 0) {
+                    speedLines.splice(i, 1);
+                }
+            }
+        }
+
+        function drawSpeedLines() {
+            push();
+            blendMode(ADD);
+            for (const line of speedLines) {
+                const alpha = (line.life / line.maxLife) * 180;
+                stroke(line.color[0], line.color[1], line.color[2], alpha);
+                strokeWeight(line.width);
+                const endX = line.x + cos(line.angle) * line.length;
+                const endY = line.y + sin(line.angle) * line.length;
+                drawingContext.shadowBlur = 5;
+                drawingContext.shadowColor = `rgba(${line.color[0]}, ${line.color[1]}, ${line.color[2]}, 0.5)`;
+                beginShape(LINES);
+                vertex(line.x, line.y);
+                vertex(endX, endY);
+                endShape();
+            }
+            drawingContext.shadowBlur = 0;
+            pop();
+            blendMode(BLEND);
+        }
+
+        // Emit speed lines in the direction opposite to movement
+        function emitSpeedLines(x, y, dx, dy, pieceColor) {
+            const moveAngle = atan2(dy, dx);
+            // Emit lines in the opposite direction (trailing behind)
+            for (let i = 0; i < 3; i++) {
+                const spreadAngle = moveAngle + PI + random(-0.5, 0.5);
+                createSpeedLine(
+                    x + random(-5, 5),
+                    y + random(-5, 5),
+                    spreadAngle,
+                    pieceColor
+                );
+            }
+        }
+
+        // Landing dust cloud effect
+        function emitLandingDust(x, y, isCapture = false) {
+            // Different particle count and color based on capture
+            const particleCount = isCapture ? 20 : 12;
+            const dustColor = isCapture ? [220, 80, 60] : [180, 170, 150]; // Red for captures, tan for normal
+            const flashSize = isCapture ? 50 : 30;
+
+            for (let i = 0; i < particleCount; i++) {
+                const angle = random(TWO_PI);
+                const speed = isCapture ? random(2, 5) : random(1, 3);
+                particles.push({
+                    x: x,
+                    y: y + squareSize * 0.3,
+                    vx: cos(angle) * speed,
+                    vy: isCapture ? random(-2, 1) : random(-1, 0.5),
+                    life: random(15, 30),
+                    maxLife: 30,
+                    size: random(4, isCapture ? 14 : 10),
+                    color: dustColor,
+                    type: isCapture ? 'capture_dust' : 'dust',
+                    gravity: 0.05,
+                    rotation: random(TWO_PI),
+                    rotationSpeed: random(-0.1, 0.1)
+                });
+            }
+
+            // Larger impact flash for captures
+            triggerImpactFlash(x, y, flashSize);
+        }
+
+        // Knight Rider scanner effect on board edge
+        function updateKnightRider() {
+            if (currentThinkingPlayer === -1) return;
+
+            // Move scanner back and forth
+            knightRiderPos += 0.02 * knightRiderDir;
+
+            // Bounce at edges
+            if (knightRiderPos >= 1) {
+                knightRiderPos = 1;
+                knightRiderDir = -1;
+            } else if (knightRiderPos <= 0) {
+                knightRiderPos = 0;
+                knightRiderDir = 1;
+            }
+        }
+
+        function drawKnightRider() {
+            if (currentThinkingPlayer === -1) return;
+
+            push();
+            noStroke();
+            blendMode(ADD);
+
+            // Determine Y position based on player
+            // White (0) = bottom edge, Black (1) = top edge
+            const edgeY = currentThinkingPlayer === 1 ? 2 : boardSize - 2;
+            const scanX = knightRiderPos * boardSize;
+
+            // Draw the scanner light with trail
+            const trailLength = 60;
+            const coreSize = 8;
+
+            // Trail (fading glow behind)
+            for (let i = 0; i < trailLength; i++) {
+                const trailX = scanX - (knightRiderDir * i * 1.5);
+                if (trailX < 0 || trailX > boardSize) continue;
+
+                const alpha = (1 - i / trailLength) * 150;
+                const size = coreSize * (1 - i / trailLength * 0.5);
+
+                fill(255, 50, 50, alpha);
+                ellipse(trailX, edgeY, size, 4);
+            }
+
+            // Core bright light
+            fill(255, 100, 100, 200);
+            ellipse(scanX, edgeY, coreSize + 4, 6);
+
+            fill(255, 200, 200, 255);
+            ellipse(scanX, edgeY, coreSize, 4);
+
+            // Bright center
+            fill(255, 255, 255, 255);
+            ellipse(scanX, edgeY, 4, 2);
+
+            // Glow effect
+            drawingContext.shadowBlur = 15;
+            drawingContext.shadowColor = 'rgba(255, 50, 50, 0.8)';
+            fill(255, 80, 80, 100);
+            ellipse(scanX, edgeY, 20, 8);
+            drawingContext.shadowBlur = 0;
+
+            pop();
+            blendMode(BLEND);
+        }
+
+        // Move annotation badge system
+        function extractAnnotationSymbol(commentary) {
+            if (!commentary) return null;
+
+            const text = commentary;
+
+            // Check for annotation symbols in order of specificity (longer first)
+            // Returns: { symbol, color, bgColor }
+            if (text.includes('!!')) {
+                return { symbol: '!!', color: [255, 255, 255], bgColor: [0, 180, 100], name: 'brilliant' };
+            }
+            if (text.includes('??')) {
+                return { symbol: '??', color: [255, 255, 255], bgColor: [200, 50, 50], name: 'blunder' };
+            }
+            if (text.includes('?!')) {
+                return { symbol: '?!', color: [255, 255, 255], bgColor: [200, 150, 50], name: 'dubious' };
+            }
+            if (text.includes('!?')) {
+                return { symbol: '!?', color: [255, 255, 255], bgColor: [100, 150, 200], name: 'interesting' };
+            }
+            // Check for standalone ? or ! (not part of !! or ??)
+            if (/(?<![!?])\?(?!\?)/.test(text) || text.toLowerCase().includes('mistake') || text.toLowerCase().includes('inaccuracy')) {
+                return { symbol: '?', color: [255, 255, 255], bgColor: [220, 120, 50], name: 'mistake' };
+            }
+            if (/(?<![!?])!(?![!?])/.test(text) || text.toLowerCase().includes('good move') || text.toLowerCase().includes('excellent')) {
+                return { symbol: '!', color: [255, 255, 255], bgColor: [80, 150, 80], name: 'good' };
+            }
+
+            return null;
+        }
+
+        function setMoveAnnotation(square, commentary) {
+            const annotation = extractAnnotationSymbol(commentary);
+            if (annotation && square) {
+                const annotationData = {
+                    square: square,
+                    symbol: annotation.symbol,
+                    color: annotation.color,
+                    bgColor: annotation.bgColor,
+                    name: annotation.name,
+                    fadeAlpha: 255,
+                    pulsePhase: 0,
+                    scaleIn: 0  // For pop-in animation (0 to 1)
+                };
+
+                // If animation is in progress, queue the annotation
+                if (animatingPiece) {
+                    pendingMoveAnnotation = annotationData;
+                    console.log(`🏷️ Annotation queued: ${annotation.symbol} on ${square} (waiting for animation)`);
+                } else {
+                    // No animation, show immediately with pop-in effect
+                    currentMoveAnnotation = annotationData;
+                    console.log(`🏷️ Annotation set: ${annotation.symbol} on ${square} (${annotation.name})`);
+                }
+            }
+        }
+
+        function showPendingAnnotation() {
+            if (pendingMoveAnnotation) {
+                currentMoveAnnotation = pendingMoveAnnotation;
+                pendingMoveAnnotation = null;
+                console.log(`🏷️ Showing queued annotation: ${currentMoveAnnotation.symbol}`);
+            }
+        }
+
+        function clearMoveAnnotation() {
+            currentMoveAnnotation = null;
+            pendingMoveAnnotation = null;
+        }
+
+        function updateMoveAnnotation() {
+            if (!currentMoveAnnotation) return;
+
+            // Pop-in scale animation (0 to 1 with overshoot)
+            if (currentMoveAnnotation.scaleIn < 1) {
+                currentMoveAnnotation.scaleIn += 0.08; // ~12 frames to complete
+                if (currentMoveAnnotation.scaleIn > 1) currentMoveAnnotation.scaleIn = 1;
+            }
+
+            // Pulse effect (only after pop-in completes)
+            if (currentMoveAnnotation.scaleIn >= 1) {
+                currentMoveAnnotation.pulsePhase += 0.1;
+            }
+        }
+
+        function drawMoveAnnotation() {
+            if (!currentMoveAnnotation || !currentMoveAnnotation.square) return;
+
+            const coords = algebraicToCoords(currentMoveAnnotation.square);
+            if (!coords) return;
+
+            // Position at top-right corner of the square, slightly inward
+            const x = coords.col * squareSize + squareSize - 8;
+            const y = coords.row * squareSize + 8;
+
+            // Pop-in animation with elastic overshoot
+            const t = currentMoveAnnotation.scaleIn;
+            const elasticScale = t < 1
+                ? 1 - Math.pow(1 - t, 3) * Math.cos(t * Math.PI * 2) * 0.3 - (1 - t)
+                : 1;
+            const popScale = Math.max(0, elasticScale);
+
+            // Pulse scale effect (only when fully popped in)
+            const pulse = t >= 1 ? (1 + Math.sin(currentMoveAnnotation.pulsePhase) * 0.08) : 1;
+            const badgeSize = 22 * pulse * popScale;
+
+            // Don't draw if too small
+            if (badgeSize < 1) return;
+
+            push();
+
+            // Shadow for depth
+            drawingContext.shadowBlur = 8 * popScale;
+            drawingContext.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            drawingContext.shadowOffsetX = 2 * popScale;
+            drawingContext.shadowOffsetY = 2 * popScale;
+
+            // Background circle
+            const bg = currentMoveAnnotation.bgColor;
+            fill(bg[0], bg[1], bg[2], 230);
+            stroke(255, 255, 255, 200);
+            strokeWeight(2);
+            ellipse(x, y, badgeSize, badgeSize);
+
+            drawingContext.shadowBlur = 0;
+            drawingContext.shadowOffsetX = 0;
+            drawingContext.shadowOffsetY = 0;
+
+            // Text symbol (scale font with badge)
+            noStroke();
+            fill(currentMoveAnnotation.color[0], currentMoveAnnotation.color[1], currentMoveAnnotation.color[2]);
+            textAlign(CENTER, CENTER);
+            const baseFontSize = currentMoveAnnotation.symbol.length > 1 ? 11 : 14;
+            textSize(baseFontSize * popScale);
+            textStyle(BOLD);
+            text(currentMoveAnnotation.symbol, x, y);
+
+            pop();
+        }
+
+        // Confetti celebration system
+        function startConfetti() {
+            confettiActive = true;
+            confetti = [];
+            // Create initial burst of confetti
+            for (let i = 0; i < 150; i++) {
+                createConfettiPiece();
+            }
+        }
+
+        function createConfettiPiece() {
+            const colors = [
+                [255, 215, 0],   // Gold
+                [255, 100, 100], // Red
+                [100, 255, 100], // Green
+                [100, 150, 255], // Blue
+                [255, 100, 255], // Pink
+                [255, 165, 0],   // Orange
+                [0, 255, 255],   // Cyan
+                [255, 255, 100]  // Yellow
+            ];
+            const shapes = ['rect', 'circle', 'triangle'];
+
+            confetti.push({
+                x: random(0, boardSize),
+                y: random(-50, -10),
+                vx: random(-3, 3),
+                vy: random(2, 6),
+                rotation: random(TWO_PI),
+                rotationSpeed: random(-0.3, 0.3),
+                size: random(6, 12),
+                color: colors[Math.floor(random(colors.length))],
+                shape: shapes[Math.floor(random(shapes.length))],
+                life: random(180, 300),
+                maxLife: 300,
+                wobble: random(TWO_PI),
+                wobbleSpeed: random(0.05, 0.15)
+            });
+        }
+
+        function updateConfetti() {
+            if (!confettiActive) return;
+
+            // Add more confetti periodically during celebration
+            if (confetti.length < 100 && random() < 0.3) {
+                createConfettiPiece();
+            }
+
+            for (let i = confetti.length - 1; i >= 0; i--) {
+                const c = confetti[i];
+
+                // Wobble side to side
+                c.wobble += c.wobbleSpeed;
+                c.x += c.vx + Math.sin(c.wobble) * 1.5;
+                c.y += c.vy;
+                c.rotation += c.rotationSpeed;
+                c.life--;
+
+                // Slow down falling and add air resistance
+                c.vy = Math.min(c.vy + 0.03, 4);
+                c.vx *= 0.99;
+
+                // Remove dead confetti
+                if (c.life <= 0 || c.y > boardSize + 50) {
+                    confetti.splice(i, 1);
+                }
+            }
+
+            // Stop confetti when all pieces are gone
+            if (confetti.length === 0) {
+                confettiActive = false;
+            }
+        }
+
+        function drawConfetti() {
+            if (!confettiActive && confetti.length === 0) return;
+
+            push();
+            noStroke();
+
+            for (const c of confetti) {
+                const alpha = Math.min(255, (c.life / c.maxLife) * 400);
+
+                push();
+                translate(c.x, c.y);
+                rotate(c.rotation);
+                fill(c.color[0], c.color[1], c.color[2], alpha);
+
+                if (c.shape === 'rect') {
+                    rectMode(CENTER);
+                    rect(0, 0, c.size, c.size * 0.6);
+                } else if (c.shape === 'circle') {
+                    ellipse(0, 0, c.size, c.size * 0.8);
+                } else {
+                    // Triangle
+                    triangle(
+                        0, -c.size / 2,
+                        -c.size / 2, c.size / 2,
+                        c.size / 2, c.size / 2
+                    );
+                }
+                pop();
+            }
+
+            pop();
+        }
+
+        function stopConfetti() {
+            confettiActive = false;
+        }
+
+        function drawPieceGlow(x, y, pieceColor, intensity = 1) {
+            push();
+            noStroke();
+            blendMode(ADD);
+
+            const glowColor = pieceColor === 'w'
+                ? [100, 150, 255]  // Blue-white glow for white pieces
+                : [200, 100, 255]; // Purple glow for black pieces
+
+            // Multiple layers for soft glow effect
+            for (let i = 4; i >= 1; i--) {
+                const size = squareSize * (0.8 + i * 0.3);
+                const alpha = 30 * intensity / i;
+                fill(glowColor[0], glowColor[1], glowColor[2], alpha);
+                ellipse(x, y, size, size);
+            }
+
+            pop();
+            blendMode(BLEND);
+        }
+
         /**
          * Convert algebraic notation to coordinates
          */
@@ -1298,42 +3703,55 @@
             const rank = 8 - parseInt(square[1]);
             return { row: rank, col: file };
         }
-        
+
         /**
          * Trigger move animation when a move is made
          */
         function triggerMoveAnimation() {
             if (!lastMove || lastMove.length < 4) return;
-            
+
             const fromSquare = lastMove.substring(0, 2);
             const toSquare = lastMove.substring(2, 4);
             const fromCoords = algebraicToCoords(fromSquare);
-            
+
             const piece = gameBoard[fromCoords.row][fromCoords.col];
             if (piece && piece.symbol) {
                 animateMove(fromSquare, toSquare, piece);
             }
         }
-        
+
         /**
          * Trigger move animation with move data before board update
          */
         function triggerMoveAnimationWithMove(move) {
-            if (!move || move.length < 4) return;
-            
+            console.log("🎬 triggerMoveAnimationWithMove called with:", move);
+
+            if (!move || move.length < 4) {
+                console.log("❌ Invalid move format:", move);
+                return;
+            }
+
             const fromSquare = move.substring(0, 2);
             const toSquare = move.substring(2, 4);
+            console.log("📍 From:", fromSquare, "To:", toSquare);
+
             const fromCoords = algebraicToCoords(fromSquare);
-            
+            console.log("📐 Coords:", fromCoords);
+
             // Get the piece from current board before it gets updated
             const piece = gameBoard[fromCoords.row] && gameBoard[fromCoords.row][fromCoords.col];
+            console.log("♟️ Piece at source:", piece);
+
             if (piece && piece.symbol) {
                 log("Starting animation for piece: " + piece.symbol + " from " + fromSquare + " to " + toSquare);
+                console.log("✅ Calling animateMove()");
                 animateMove(fromSquare, toSquare, piece);
             } else {
                 log("No piece found at " + fromSquare + " to animate");
+                console.log("❌ No piece found at", fromSquare, "Board state:", gameBoard[fromCoords.row]);
             }
         }
     </script>
 </body>
+
 </html>

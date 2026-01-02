@@ -1,101 +1,88 @@
 # AI Chess Arena
 
-A web application where AI language models play chess against each other via the OpenRouter API. Watch powerful AI models compete in real-time with animated games, insightful commentary, and a performance leaderboard.
+Watch AI language models battle each other in chess! 🤖♟️
+
+**Live at**: https://aichess.co
+
+## What is this?
+
+AI Chess Arena pits AI language models against each other in real-time chess matches. Two random models are selected, given the current board position, and must generate valid chess moves. A neutral AI commentator provides live analysis of each move with chess annotations.
 
 ## Features
 
-- AI vs AI chess matches using 300+ models from OpenRouter API
-- Beautiful chess board visualization with Unicode chess pieces
-- Real-time game updates with WebSockets
-- Expert commentary from GPT-4.1-mini with chess annotation symbols (!, !!, ?, ??, etc.)
-- Visual effects for brilliant moves, blunders, and checkmates
-- Move history with SAN notation display
-- Automatic interpretation for ambiguous or incorrectly formatted moves
-- Leaderboard tracking model performance across games
-- Game setup with model selection or random opponents
-- Responsive interface using DaisyUI and TailwindCSS
+- ✅ **Real-time Games**: Watch AI models play chess live
+- ⭐ **Winner Swaps Sides**: Winners switch colors for the rematch
+- 🎨 **Move Quality**: Color-coded moves (brilliant !!, good !, mistake ?, blunder ??)
+- 🏷️ **Annotation Badges**: Pop-in badges on board showing move quality
+- ✨ **Visual Effects**: Particle trails, screen shake, confetti celebrations
+- 📊 **Statistics Dashboard**: Live metrics with 24-hour sparklines
+- 🏆 **Elo Leaderboard**: Track model performance over time
+- 🎬 **Game Replay**: Replay completed games with controls
+- 📥 **GIF Generation**: Download animated GIFs of games
+- 👁️ **Vision Support**: Board images sent to vision-capable commentators
 
-## Screenshots
+## Tech Stack
 
-(Add screenshots here to showcase the UI)
+- **Backend**: Python, FastAPI, WebSockets, python-chess
+- **Frontend**: Vanilla JS, p5.js, Tailwind CSS, DaisyUI
+- **Database**: SQLite
+- **AI Models**: 353+ models via OpenRouter API
+- **Commentary**: google/gemini-3-flash-preview (vision-capable)
 
-## Setup
+## Quick Start
 
-1. Clone the repository:
-   ```
-   git clone https://github.com/sliday/ai-chess.git
-   cd ai-chess
-   ```
+```bash
+# Install dependencies
+pip install -r requirements.txt
 
-2. Install the required dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
+# Set environment variable
+export OPENROUTER_API_KEY="your-key-here"
 
-3. Set your OpenRouter API key as an environment variable:
-   ```
-   export OPENROUTER_API_KEY=your_api_key_here
-   ```
+# Initialize database
+python3 -c "import database; database.init_db()"
 
-4. Run the server:
-   ```
-   python server.py
-   ```
+# Run server
+gunicorn server:app -w 4 -k uvicorn.workers.UvicornWorker --bind 127.0.0.1:8000
+```
 
-5. Open your browser and navigate to:
-   ```
-   http://localhost:8000
-   ```
+Visit `http://localhost:8000` in your browser.
 
-## Technical Details
+## URL Parameters
 
-### Backend (FastAPI)
+You can pre-select models via URL parameters:
 
-- **Chess Game Logic**: Built on Python's `chess` library for move validation and game state management
-- **WebSocket API**: Provides real-time game updates to the client
-- **OpenRouter Integration**: Sophisticated API integration with retry logic and fallback mechanisms
-- **Move Interpretation**: Uses GPT-4.1-mini to interpret ambiguous moves into standard notation
-- **Asynchronous Commentary**: Non-blocking game commentary that doesn't slow down gameplay
-- **Leaderboard Management**: Tracks and ranks model performance based on game results
+```
+https://aichess.co/?model=openai/gpt-4o&model2=anthropic/claude-sonnet-4
+```
 
-### Frontend (HTML/JS)
+- `model` - White player (model1)
+- `model2` - Black player (model2)
+- Either can be omitted for random selection
 
-- **Responsive UI**: Built with DaisyUI and TailwindCSS
-- **Interactive Chess Board**: Rendered with Unicode chess symbols
-- **Visual Effects**: Animations for special moves and game events (confetti for wins, shaking for blunders)
-- **WebSocket Client**: For receiving real-time game updates
-- **Move History**: Formatted display of chess moves in standard algebraic notation
+## Documentation
 
-## API Endpoints
+📚 **Full documentation**: See [AICHESS.md](./AICHESS.md) for:
+- Architecture details
+- API endpoints
+- WebSocket protocol
+- Database schema
+- Feature implementation details
+- Development workflow
 
-- `GET /` - Serves the main HTML interface
-- `GET /models` - Returns the list of available AI models
-- `POST /games` - Creates a new chess game between specified models
-- `GET /games/{game_id}` - Returns the current state of a specific game
-- `GET /leaderboard` - Returns the current model rankings
-- `WebSocket /ws/{game_id}` - Real-time connection for game updates
+## Recent Updates (v1.6.0)
 
-## Configuration
+- 🏷️ Move annotation badges with pop-in animation on board
+- ✨ Enhanced visual effects (particles, trails, screen shake)
+- 🎉 Confetti celebration on game end
+- 👁️ Vision model support for commentary (sends board images)
+- 🔄 Winner now swaps sides (color) for rematch
+- 🔴 Red particles for captures, tan for normal moves
+- 🚗 Knight Rider scanner during AI thinking
 
-- **models.txt**: Contains the list of OpenRouter model IDs available for games
-- **results.txt**: Stores game results in CSV format for leaderboard persistence
-- **requirements.txt**: Lists all Python dependencies
+## Created By
 
-## Requirements
-
-- Python 3.8+
-- FastAPI and Uvicorn
-- OpenRouter API key
-- Modern web browser with WebSocket support
+[@stas_kulesh](https://x.com/stas_kulesh)
 
 ## License
 
-MIT License - see LICENSE file for details
-
-## Acknowledgments
-
-- Built with [FastAPI](https://fastapi.tiangolo.com/)
-- Chess logic powered by [python-chess](https://python-chess.readthedocs.io/)
-- UI components from [DaisyUI](https://daisyui.com/)
-- Styling with [TailwindCSS](https://tailwindcss.com/)
-- Models accessible via [OpenRouter](https://openrouter.ai/)
+Proprietary - All rights reserved
