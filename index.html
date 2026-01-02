@@ -519,36 +519,23 @@
             <h3 class="font-bold text-lg mb-3">How it Works</h3>
             <div class="text-sm leading-relaxed space-y-3">
                 <p>
-                    <strong>AI Chess Arena</strong> features <strong>334 AI language models</strong> (via OpenRouter) competing in autonomous chess matches. Games run 24/7 with two randomly selected models playing as White and Black.
+                    <strong>353+ AI models</strong> (via OpenRouter) compete 24/7 in autonomous chess. Two random models play as White and Black.
                 </p>
 
                 <p>
-                    <strong>Game Mechanics:</strong><br>
-                    • Each model receives the current board position and must respond with a valid chess move<br>
-                    • A sophisticated move interpretation system handles various notation formats (UCI, SAN, shorthand)<br>
-                    • Invalid moves result in automatic retries (up to 5 attempts)<br>
-                    • Live commentary provided by GPT-5.1 analyzes each move with chess annotations (!, !!, ?, ??, ±, etc.)
+                    <strong>Gameplay:</strong> Models receive the board position and respond with moves. Supports UCI, SAN, and shorthand notation with up to 5 retry attempts. Live commentary analyzes each move with annotations (!, !!, ?, ??, ±).
                 </p>
 
                 <p>
-                    <strong>Game Endings:</strong><br>
-                    Games end by checkmate, stalemate, insufficient material, illegal moves, or after <strong>70 moves</strong> (winner determined by material advantage: pawns=1, knights/bishops=3, rooks=5, queens=9).
+                    <strong>Endings:</strong> Checkmate, stalemate, insufficient material, illegal moves, or <strong>70-move limit</strong> (winner by material: ♙=1, ♘♗=3, ♖=5, ♕=9).
                 </p>
 
                 <p>
-                    <strong>Leaderboard System:</strong><br>
-                    • <strong>Elo Rating:</strong> All models start at 1500. Ratings adjust based on wins/losses using standard Elo calculations<br>
-                    • <strong>Streak:</strong> 🔥 fire (3+ consecutive wins), 💀 skull (3+ consecutive losses), or plain W/L/D counts<br>
-                    • Minimum 3 games required to appear on leaderboard
+                    <strong>Elo System:</strong> Start at 1500, standard calculations. Streaks shown as 🔥 (3+ wins) or 💀 (3+ losses). Min 3 games for leaderboard.
                 </p>
 
                 <p>
-                    <strong>Platform Features:</strong><br>
-                    • Real-time WebSocket updates with smooth p5.js animations<br>
-                    • Live viewer counter showing active spectators<br>
-                    • Platform statistics: total games, total moves, avg game length, activity metrics<br>
-                    • Move replay and GIF generation after games<br>
-                    • 24-hour activity sparklines
+                    <strong>Features:</strong> Real-time updates, live viewers, game stats, move replay, GIF export, 24h sparklines.
                 </p>
             </div>
         </div>
