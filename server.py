@@ -47,7 +47,7 @@ import asyncio
 import logging
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -439,10 +439,14 @@ class GameManager:
         self.connections: Dict[str, List[WebSocket]] = {}
         # Store result from previous game for smart pairing
         self.last_game_result: Optional[Dict] = None
-        # Chat: websocket -> username mapping
-        self.connection_usernames: Dict[WebSocket, str] = {}
+        # Chat: websocket -> (username, color) mapping
+        self.connection_usernames: Dict[WebSocket, tuple] = {}
         # Chat: rate limiting (websocket -> last message timestamp)
         self.last_chat_time: Dict[WebSocket, float] = {}
+        # Chat: connections by chat_scope (lobby or game_id) -> list of websockets
+        self.chat_connections: Dict[str, List[WebSocket]] = {}
+        # Chat: websocket -> chat_scope mapping
+        self.connection_chat_scope: Dict[WebSocket, str] = {}
         # Track the current autonomous game ID
         self.autonomous_game_id: Optional[str] = None
         
@@ -585,13 +589,47 @@ class GameManager:
                     "type": "viewer_count",
                     "count": len(self.connections.get(game_id, []))
                 })
-        # Clean up chat metadata
+        # Clean up chat connections
+        chat_scope = self.connection_chat_scope.pop(websocket, None)
+        if chat_scope and chat_scope in self.chat_connections:
+            if websocket in self.chat_connections[chat_scope]:
+                self.chat_connections[chat_scope].remove(websocket)
+                # Broadcast updated chat viewer count
+                await self.broadcast_chat(chat_scope, {
+                    "type": "chat_viewer_count",
+                    "count": len(self.chat_connections.get(chat_scope, []))
+                })
+        # Clean up other chat metadata
         self.connection_usernames.pop(websocket, None)
         self.last_chat_time.pop(websocket, None)
 
     def get_viewer_count(self, game_id: str) -> int:
         """Get the number of viewers for a game"""
         return len(self.connections.get(game_id, []))
+
+    def connect_chat(self, websocket: WebSocket, chat_scope: str):
+        """Connect a websocket to a chat scope (lobby or game_id)"""
+        if chat_scope not in self.chat_connections:
+            self.chat_connections[chat_scope] = []
+        self.chat_connections[chat_scope].append(websocket)
+        self.connection_chat_scope[websocket] = chat_scope
+        logger.info(f"Client joined chat scope '{chat_scope}'. Total in scope: {len(self.chat_connections[chat_scope])}")
+
+    def get_chat_viewer_count(self, chat_scope: str) -> int:
+        """Get the number of users in a chat scope"""
+        return len(self.chat_connections.get(chat_scope, []))
+
+    async def broadcast_chat(self, chat_scope: str, message: dict):
+        """Broadcast a message to all clients in a chat scope"""
+        if chat_scope in self.chat_connections:
+            disconnected = []
+            for connection in self.chat_connections[chat_scope]:
+                try:
+                    await connection.send_json(message)
+                except Exception as e:
+                    logger.warning(f"Error broadcasting chat to client: {e}")
+                    disconnected.append(connection)
+            # Note: Don't clean up here, let disconnect_and_broadcast handle it
     
     async def broadcast(self, game_id: str, message: dict):
         """Broadcast a message to all clients connected to a game"""
@@ -2079,10 +2117,21 @@ async def delayed_start():
     game_manager.start_autonomous_game()
 
 @app.websocket("/ws/{game_id}")
-async def websocket_endpoint(websocket: WebSocket, game_id: str):
-    """WebSocket connection for real-time game updates"""
+async def websocket_endpoint(websocket: WebSocket, game_id: str, chat_scope: str = Query(default=None)):
+    """WebSocket connection for real-time game updates
+
+    Args:
+        game_id: The game to watch
+        chat_scope: Chat scope - "lobby" for main page, or game_id for specific game chat
+                   If not provided, defaults to "lobby"
+    """
+    # Determine chat scope: lobby (default for main page) or specific game
+    effective_chat_scope = chat_scope if chat_scope else "lobby"
+    logger.info(f"WebSocket connected: game_id={game_id}, chat_scope={chat_scope}, effective={effective_chat_scope}")
+
     await game_manager.connect(websocket, game_id)
-    
+    game_manager.connect_chat(websocket, effective_chat_scope)
+
     try:
         # Send current state immediately
         if game_id in game_manager.active_games:
@@ -2102,17 +2151,31 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                 }
             })
 
-        # Send username, color, and viewer count to client (for chat)
+        # Send username, color, chat scope, and viewer counts to client
         user_data = game_manager.connection_usernames.get(websocket, ("Spectator", "text-gray-500"))
         username, color = user_data if isinstance(user_data, tuple) else (user_data, "text-gray-500")
         viewer_count = game_manager.get_viewer_count(game_id)
-        await websocket.send_json({"type": "welcome", "username": username, "color": color, "viewers": viewer_count})
+        chat_viewer_count = game_manager.get_chat_viewer_count(effective_chat_scope)
+        await websocket.send_json({
+            "type": "welcome",
+            "username": username,
+            "color": color,
+            "viewers": viewer_count,
+            "chat_scope": effective_chat_scope,
+            "chat_viewers": chat_viewer_count
+        })
 
-        # Broadcast updated viewer count to all other clients
+        # Broadcast updated viewer count to all game watchers
         await game_manager.broadcast(game_id, {"type": "viewer_count", "count": viewer_count})
 
-        # Send recent chat messages from database
-        chat_history = database.get_chat_messages(game_id, limit=30)
+        # Broadcast updated chat viewer count to all in same chat scope
+        await game_manager.broadcast_chat(effective_chat_scope, {
+            "type": "chat_viewer_count",
+            "count": chat_viewer_count
+        })
+
+        # Send recent chat messages from chat scope (lobby or game-specific)
+        chat_history = database.get_chat_messages(effective_chat_scope, limit=30)
         if chat_history:
             await websocket.send_json({
                 "type": "chat_history",
@@ -2151,10 +2214,10 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                             "timestamp": now,
                             "color": color
                         }
-                        # Save to database
-                        database.save_chat_message(game_id, username, text, now, color)
-                        # Broadcast to all viewers
-                        await game_manager.broadcast(game_id, msg)
+                        # Save to database using chat_scope (lobby or game_id)
+                        database.save_chat_message(effective_chat_scope, username, text, now, color)
+                        # Broadcast to all users in the same chat scope
+                        await game_manager.broadcast_chat(effective_chat_scope, msg)
 
             except json.JSONDecodeError:
                 pass  # Ignore non-JSON messages (keep-alive, etc.)

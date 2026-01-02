@@ -625,6 +625,7 @@
         let urlSelectedModel = null;    // Model pre-selected via URL parameter (?model=) - plays as White
         let urlSelectedModel2 = null;   // Second model via URL parameter (?model2=) - plays as Black
         let urlGameId = null;           // Game ID from URL parameter (?game=) - join specific game
+        let chatScope = 'lobby';        // Chat scope: 'lobby' for main page, or game_id for specific game
         let autoStartTimer = null;      // Auto-start new game timer
         let autoStartCountdown = 300;   // Countdown seconds (5 minutes = 300s)
         let myUsername = 'Spectator';   // Chat username assigned by server
@@ -715,6 +716,13 @@
             if (gameParam) {
                 urlGameId = decodeURIComponent(gameParam);
                 console.log("🎯 URL game parameter:", urlGameId);
+                // Set chat scope to game-specific chat
+                chatScope = urlGameId;
+                console.log("💬 Chat scope set to game:", chatScope);
+            } else {
+                // No game param = lobby chat
+                chatScope = 'lobby';
+                console.log("💬 Chat scope set to lobby");
             }
 
             // Check if p5.js is loaded
@@ -1429,9 +1437,9 @@
 
             // Determine the appropriate WebSocket protocol based on page protocol (HTTP/HTTPS)
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws/${gameId}`;
+            const wsUrl = `${protocol}//${window.location.host}/ws/${gameId}?chat_scope=${encodeURIComponent(chatScope)}`;
 
-            log(`Connecting to WebSocket at ${wsUrl}`);
+            log(`Connecting to WebSocket at ${wsUrl} (chat_scope: ${chatScope})`);
             socket = new WebSocket(wsUrl);
 
             // Connection established handler
@@ -1583,15 +1591,20 @@
                     // Server assigned us a username and color for chat
                     myUsername = message.username;
                     myColor = message.color || 'text-primary';
-                    log(`Assigned chat username: ${myUsername} (${myColor})`);
-                    // Update viewer count from welcome message
-                    if (message.viewers) {
-                        updateViewerCount(message.viewers);
+                    log(`Assigned chat username: ${myUsername} (${myColor}), chat_scope: ${message.chat_scope}`);
+                    // Update chat viewer count from welcome message
+                    if (message.chat_viewers) {
+                        updateViewerCount(message.chat_viewers);
                     }
                     break;
 
                 case 'viewer_count':
-                    // Someone joined or left
+                    // Someone joined or left the game (legacy, kept for compatibility)
+                    updateViewerCount(message.count);
+                    break;
+
+                case 'chat_viewer_count':
+                    // Chat-specific viewer count update
                     updateViewerCount(message.count);
                     break;
 
