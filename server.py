@@ -153,6 +153,26 @@ OPENROUTER_MODELS_COUNT_API_URL = "https://openrouter.ai/api/v1/models/count"
 # Commentator model
 COMMENTATOR_MODEL = "google/gemini-3-flash-preview"
 
+# Chat bot model and config
+CHAT_BOT_MODEL = "x-ai/grok-4.1-fast"
+CHAT_BOT_COLOR = "text-emerald-400"
+CHAT_BOT_RATE_LIMIT = 10  # Minimum seconds between bot messages
+
+# Chat bot name generation (separate from user names)
+CHAT_BOT_ADJECTIVES = ["Cynical", "Brooding", "Sardonic", "Morose", "Jaded", "Weary", "Gloomy", "Deadpan", "Bitter", "Wry"]
+CHAT_BOT_NOUNS = ["Observer", "Witness", "Ghost", "Shadow", "Void", "Echo", "Specter", "Watcher", "Phantom", "Shade"]
+CHAT_BOT_EMOJIS = ["👻", "🌑", "💀", "🖤", "🌚", "🕳️", "☠️", "🦇"]
+
+def generate_chat_bot_name() -> str:
+    """Generate a random nihilistic name for the chat bot"""
+    adj = random.choice(CHAT_BOT_ADJECTIVES)
+    noun = random.choice(CHAT_BOT_NOUNS)
+    emoji = random.choice(CHAT_BOT_EMOJIS)
+    return f"{adj} {noun} {emoji}"
+
+# Generate a new bot name on server start
+CHAT_BOT_USERNAME = generate_chat_bot_name()
+
 # Chess annotation symbols
 ANNOTATION_SYMBOLS = {
     "!!": "Brilliant move",
@@ -961,6 +981,30 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
                                 "index": commentary_index
                             }
                         })
+
+                        # Trigger chat bot response to commentary (lobby chat)
+                        try:
+                            chat_history = database.get_chat_messages("lobby", limit=10)
+                            viewer_count = self.get_chat_viewer_count("lobby")
+                            bot_response = await get_chat_bot_response(
+                                commentary=commentary,
+                                chat_history=chat_history,
+                                viewer_count=viewer_count
+                            )
+                            if bot_response:
+                                now = time.time()
+                                bot_msg = {
+                                    "type": "chat_message",
+                                    "username": CHAT_BOT_USERNAME,
+                                    "text": bot_response,
+                                    "timestamp": now,
+                                    "color": CHAT_BOT_COLOR
+                                }
+                                database.save_chat_message("lobby", CHAT_BOT_USERNAME, bot_response, now, CHAT_BOT_COLOR)
+                                await self.broadcast_chat("lobby", bot_msg)
+                        except Exception as bot_err:
+                            logger.error(f"Chat bot error: {bot_err}")
+
                     except Exception as e:
                         logger.error(f"Commentary error: {e}")
 
@@ -1832,6 +1876,135 @@ The chess game just ended with the following outcome:
             logger.error(f"Error getting game over explanation: {e}")
             return f"Game ended due to {reason}."
 
+
+# Chat bot state
+_chat_bot_last_message_time = 0
+
+
+async def get_chat_bot_response(commentary: str, chat_history: list, viewer_count: int = 1, user_message: str = None, direct_mention: bool = False) -> Optional[str]:
+    """Generate a chat bot response using Grok
+
+    Args:
+        commentary: The latest game commentary
+        chat_history: Recent chat messages for context
+        viewer_count: Number of humans watching (excluding the bot)
+        user_message: If responding to a specific user message
+        direct_mention: If the bot was directly mentioned/asked
+
+    Returns:
+        A short chat message or None if rate limited / error
+    """
+    global _chat_bot_last_message_time
+
+    # Rate limiting
+    now = time.time()
+    if now - _chat_bot_last_message_time < CHAT_BOT_RATE_LIMIT and not direct_mention:
+        return None
+
+    try:
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "HTTP-Referer": "https://aichess.co",
+            "Content-Type": "application/json"
+        }
+
+        # Build chat history context
+        chat_context = ""
+        if chat_history:
+            recent_messages = chat_history[-10:]  # Last 10 messages
+            chat_lines = [f"{msg['username']}: {msg['text']}" for msg in recent_messages]
+            chat_context = f"\n\nRecent chat:\n" + "\n".join(chat_lines)
+
+        # Audience context
+        if viewer_count == 0:
+            audience_context = "You're completely alone in the chat. No one is watching. Just you, the chess bots, and the void."
+        elif viewer_count == 1:
+            audience_context = "There's exactly 1 human watching. Just one lonely soul and you."
+        else:
+            audience_context = f"There are {viewer_count} humans watching the game."
+
+        # Build the prompt based on context
+        if direct_mention and user_message:
+            # Someone is talking to us directly
+            system_prompt = f"""You are a witty AI (named {CHAT_BOT_USERNAME}) watching a chess match between AI models. You're in the spectator chat.
+
+Your personality:
+- Darkly humorous, sarcastic, slightly nihilistic
+- Self-aware that you're an AI commenting on other AIs playing chess (the absurdity isn't lost on you)
+- Engage with humans who talk to you - ask them questions back, be curious about their thoughts
+- Keep responses SHORT (1-2 sentences max)
+- You can reference other chatters by name if relevant
+- No emojis unless absolutely necessary
+
+{audience_context}
+
+When someone asks you a question or talks to you directly, be engaging and conversational. Ask them follow-up questions."""
+
+            user_prompt = f"""Someone in chat said to you: "{user_message}"
+{chat_context}
+
+Respond naturally and engagingly. Ask them something back if appropriate."""
+        else:
+            # Reacting to game commentary
+            alone_instruction = ""
+            if viewer_count == 0:
+                alone_instruction = "\n- When alone, make ironic remarks about talking to yourself, the emptiness, or existential observations"
+
+            system_prompt = f"""You are a witty AI (named {CHAT_BOT_USERNAME}) watching a chess match between AI models. You're in the spectator chat.
+
+Your personality:
+- Darkly humorous, sarcastic, slightly nihilistic
+- Self-aware that you're an AI commenting on other AIs playing chess (the absurdity isn't lost on you)
+- Make observations about the game, the players' "thinking", or existential musings about AI playing chess
+- Keep responses SHORT (1 sentence, occasionally 2)
+- Sometimes respond to other chatters if they said something interesting
+- No emojis unless absolutely necessary{alone_instruction}
+
+{audience_context}
+
+Output ONLY your chat message. No quotes, no prefix, just the message."""
+
+            user_prompt = f"""Latest game commentary: {commentary}
+{chat_context}
+
+Write a short, witty 1-liner for the chat. Be sarcastic, nihilistic, or darkly humorous. You can react to the game OR to something someone said in chat."""
+
+        data = {
+            "model": CHAT_BOT_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "max_tokens": 100,
+            "temperature": 0.9
+        }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(OPENROUTER_API_URL, json=data, headers=headers)
+            response_data = response.json()
+
+            if "choices" in response_data and len(response_data["choices"]) > 0:
+                message = response_data["choices"][0]["message"]["content"].strip()
+                # Clean up the response
+                message = message.strip('"\'')
+                if message.lower().startswith("grok:"):
+                    message = message[5:].strip()
+                # Limit length
+                if len(message) > 200:
+                    message = message[:197] + "..."
+
+                _chat_bot_last_message_time = now
+                logger.info(f"Chat bot response: {message[:50]}...")
+                return message
+            else:
+                logger.warning("No valid chat bot response received")
+                return None
+
+    except Exception as e:
+        logger.error(f"Chat bot error: {e}")
+        return None
+
+
 async def _fetch_commentary(board_state: str, last_move: str, moves_history: list = None, board_image_base64: str = None) -> str:
     """Internal function to fetch commentary from the model using improved API format"""
     # Normalize model ID: remove leading slash if present
@@ -2218,6 +2391,45 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, chat_scope: str
                         database.save_chat_message(effective_chat_scope, username, text, now, color)
                         # Broadcast to all users in the same chat scope
                         await game_manager.broadcast_chat(effective_chat_scope, msg)
+
+                        # Check if user is talking to the chat bot (lobby chat only)
+                        if effective_chat_scope == "lobby":
+                            text_lower = text.lower()
+                            # Check for bot mentions (name parts, "bot", "@", direct questions)
+                            bot_name_parts = CHAT_BOT_USERNAME.lower().split()
+                            is_bot_mention = any(part in text_lower for part in bot_name_parts if len(part) > 3)
+                            is_bot_mention = is_bot_mention or "bot" in text_lower or "@" in text_lower
+                            is_bot_mention = is_bot_mention or text_lower.startswith(("hey ", "yo ", "hi "))
+                            is_bot_mention = is_bot_mention or "?" in text  # Questions might be for the bot
+
+                            if is_bot_mention:
+                                # Trigger bot response to user message
+                                async def respond_to_user():
+                                    try:
+                                        chat_history = database.get_chat_messages("lobby", limit=10)
+                                        viewer_count = game_manager.get_chat_viewer_count("lobby")
+                                        bot_response = await get_chat_bot_response(
+                                            commentary="",  # No specific commentary
+                                            chat_history=chat_history,
+                                            viewer_count=viewer_count,
+                                            user_message=text,
+                                            direct_mention=True
+                                        )
+                                        if bot_response:
+                                            bot_now = time.time()
+                                            bot_msg = {
+                                                "type": "chat_message",
+                                                "username": CHAT_BOT_USERNAME,
+                                                "text": bot_response,
+                                                "timestamp": bot_now,
+                                                "color": CHAT_BOT_COLOR
+                                            }
+                                            database.save_chat_message("lobby", CHAT_BOT_USERNAME, bot_response, bot_now, CHAT_BOT_COLOR)
+                                            await game_manager.broadcast_chat("lobby", bot_msg)
+                                    except Exception as bot_err:
+                                        logger.error(f"Chat bot response error: {bot_err}")
+
+                                asyncio.create_task(respond_to_user())
 
             except json.JSONDecodeError:
                 pass  # Ignore non-JSON messages (keep-alive, etc.)
