@@ -87,6 +87,18 @@ def init_db():
             )
             ''')
 
+            # Chat messages table
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_id TEXT NOT NULL,
+                username TEXT NOT NULL,
+                message TEXT NOT NULL,
+                timestamp REAL NOT NULL
+            )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_game ON chat_messages(game_id)')
+
             conn.commit()
             logger.info("Database initialized successfully")
     except Exception as e:
@@ -540,3 +552,31 @@ def get_hourly_stats() -> Dict[str, Any]:
             "moves": [0] * 24,
             "avg_length": [0] * 24
         }
+
+def save_chat_message(game_id: str, username: str, message: str, timestamp: float):
+    """Save a chat message to database"""
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT INTO chat_messages (game_id, username, message, timestamp) VALUES (?, ?, ?, ?)',
+                (game_id, username, message, timestamp)
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Failed to save chat message: {e}")
+
+def get_chat_messages(game_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """Get recent chat messages for a game"""
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT username, message, timestamp FROM chat_messages WHERE game_id = ? ORDER BY timestamp DESC LIMIT ?',
+                (game_id, limit)
+            )
+            rows = cursor.fetchall()
+            return [{"username": r[0], "text": r[1], "timestamp": r[2]} for r in reversed(rows)]
+    except Exception as e:
+        logger.error(f"Failed to get chat messages: {e}")
+        return []

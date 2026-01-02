@@ -439,6 +439,10 @@ class GameManager:
         self.connections: Dict[str, List[WebSocket]] = {}
         # Store result from previous game for smart pairing
         self.last_game_result: Optional[Dict] = None
+        # Chat: websocket -> username mapping
+        self.connection_usernames: Dict[WebSocket, str] = {}
+        # Chat: rate limiting (websocket -> last message timestamp)
+        self.last_chat_time: Dict[WebSocket, float] = {}
         # Track the current autonomous game ID
         self.autonomous_game_id: Optional[str] = None
         
@@ -523,7 +527,10 @@ class GameManager:
         if game_id not in self.connections:
             self.connections[game_id] = []
         self.connections[game_id].append(websocket)
-        logger.info(f"Client connected to game {game_id}. Total clients: {len(self.connections[game_id])}")
+        # Assign anonymous username for chat
+        username = f"Spectator_{random.randint(1000, 9999)}"
+        self.connection_usernames[websocket] = username
+        logger.info(f"Client connected to game {game_id} as {username}. Total clients: {len(self.connections[game_id])}")
         
     def disconnect(self, websocket: WebSocket, game_id: str):
         """Disconnect a websocket"""
@@ -531,6 +538,9 @@ class GameManager:
             if websocket in self.connections[game_id]:
                 self.connections[game_id].remove(websocket)
                 logger.info(f"Client disconnected from game {game_id}")
+        # Clean up chat metadata
+        self.connection_usernames.pop(websocket, None)
+        self.last_chat_time.pop(websocket, None)
     
     async def broadcast(self, game_id: str, message: dict):
         """Broadcast a message to all clients connected to a game"""
@@ -2040,7 +2050,19 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                     "commentary": game.commentary
                 }
             })
-        
+
+        # Send username to client (for chat)
+        username = game_manager.connection_usernames.get(websocket, "Spectator")
+        await websocket.send_json({"type": "welcome", "username": username})
+
+        # Send recent chat messages from database
+        chat_history = database.get_chat_messages(game_id, limit=30)
+        if chat_history:
+            await websocket.send_json({
+                "type": "chat_history",
+                "messages": chat_history
+            })
+
         # Keep connection open and handle incoming messages
         while True:
             message = await websocket.receive_text()
@@ -2051,6 +2073,31 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                     game = game_manager.active_games[game_id]
                     game.board_image_base64 = data.get("image")
                     logger.debug(f"Received board image for game {game_id}")
+
+                # Handle chat message
+                elif data.get("type") == "chat_message":
+                    # Rate limiting: 1 message per second
+                    now = time.time()
+                    last = game_manager.last_chat_time.get(websocket, 0)
+                    if now - last < 1.0:
+                        continue  # Silently ignore rapid messages
+
+                    username = game_manager.connection_usernames.get(websocket, "Anonymous")
+                    text = data.get("text", "")[:200]  # Max 200 chars
+
+                    if text.strip():
+                        game_manager.last_chat_time[websocket] = now
+                        msg = {
+                            "type": "chat_message",
+                            "username": username,
+                            "text": text,
+                            "timestamp": now
+                        }
+                        # Save to database
+                        database.save_chat_message(game_id, username, text, now)
+                        # Broadcast to all viewers
+                        await game_manager.broadcast(game_id, msg)
+
             except json.JSONDecodeError:
                 pass  # Ignore non-JSON messages (keep-alive, etc.)
 

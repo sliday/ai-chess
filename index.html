@@ -377,6 +377,19 @@
                             <div id="moveList" class="move-list text-xs mt-1 move-history-content">No moves yet</div>
                         </div>
                     </div>
+
+                    <!-- Chat -->
+                    <div class="card bg-base-200 shadow-sm flex-1">
+                        <div class="card-body p-2">
+                            <h3 class="text-sm font-bold">💬 Chat</h3>
+                            <div id="chatMessages" class="h-24 overflow-y-auto text-xs space-y-1 bg-base-300 rounded p-2 mt-1"></div>
+                            <div class="flex gap-1 mt-1">
+                                <input id="chatInput" type="text" placeholder="Say something..."
+                                       class="input input-xs input-bordered flex-1" maxlength="200">
+                                <button id="chatSendBtn" class="btn btn-xs btn-primary">Send</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -595,6 +608,7 @@
         let urlGameId = null;           // Game ID from URL parameter (?game=) - join specific game
         let autoStartTimer = null;      // Auto-start new game timer
         let autoStartCountdown = 300;   // Countdown seconds (5 minutes = 300s)
+        let myUsername = 'Spectator';   // Chat username assigned by server
 
         // p5.js variables
         let chessCanvas;
@@ -774,6 +788,12 @@
             document.getElementById('replayLast').addEventListener('click', () => replayMove(boardHistory.length - 1));
             document.getElementById('replayDownloadGif').addEventListener('click', generateGameGIF);
             document.getElementById('replayExit').addEventListener('click', exitReplay);
+
+            // Set up chat controls
+            document.getElementById('chatSendBtn').addEventListener('click', sendChat);
+            document.getElementById('chatInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') sendChat();
+            });
 
             // Set up min games filter
             document.getElementById('minGamesFilter').addEventListener('change', (e) => {
@@ -1500,8 +1520,52 @@
                     }
                     break;
 
+                case 'welcome':
+                    // Server assigned us a username for chat
+                    myUsername = message.username;
+                    log(`Assigned chat username: ${myUsername}`);
+                    break;
+
+                case 'chat_message':
+                    // New chat message from another user
+                    appendChatMessage(message);
+                    break;
+
+                case 'chat_history':
+                    // Load chat history on connect
+                    const chatDiv = document.getElementById('chatMessages');
+                    chatDiv.innerHTML = '';
+                    message.messages.forEach(appendChatMessage);
+                    break;
+
                 default:
                     console.warn(`Unknown message type received: ${message.type}`);
+            }
+        }
+
+        /**
+         * Append a chat message to the chat panel
+         * @param {Object} msg - Message with username, text, timestamp
+         */
+        function appendChatMessage(msg) {
+            const chat = document.getElementById('chatMessages');
+            const isMe = msg.username === myUsername;
+            const div = document.createElement('div');
+            div.className = isMe ? 'text-primary' : '';
+            div.innerHTML = `<b>${escapeHTML(msg.username)}:</b> ${escapeHTML(msg.text)}`;
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        /**
+         * Send a chat message through WebSocket
+         */
+        function sendChat() {
+            const input = document.getElementById('chatInput');
+            const text = input.value.trim();
+            if (text && socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: 'chat_message', text }));
+                input.value = '';
             }
         }
 
