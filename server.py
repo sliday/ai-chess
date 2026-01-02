@@ -1226,6 +1226,60 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
             self.autonomous_game_id = game_id
             logger.info(f"Autonomous game ID set to: {game_id}")
 
+    async def skip_game(self, game_id: str) -> bool:
+        """Skip/forfeit a stuck game and start a new one
+
+        Args:
+            game_id: The game to skip
+
+        Returns:
+            True if game was skipped, False if not found or already finished
+        """
+        if game_id not in self.active_games:
+            return False
+
+        game = self.active_games[game_id]
+        if game.status != "in_progress":
+            return False
+
+        logger.info(f"Skipping game {game_id} - user requested")
+
+        # Cancel the game task if running
+        if game_id in self.game_tasks:
+            task = self.game_tasks[game_id]
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+        # Mark game as finished (current player forfeits)
+        game.status = "finished"
+        game.winner = 1 - game.current_player
+        game.reason = "skipped"
+
+        # Broadcast game over
+        await self.broadcast(game_id, {
+            "type": "game_over",
+            "data": {
+                "result": game.get_result(),
+                "friendly_reason": "Game skipped - starting a new match!"
+            }
+        })
+
+        # Clean up and start new game
+        self.end_game(game_id)
+        if game_id == self.autonomous_game_id:
+            self.autonomous_game_id = None
+
+        # Start new game immediately
+        await asyncio.sleep(1)
+        new_game_id = self.create_game(use_previous_result=False)
+        self.autonomous_game_id = new_game_id
+
+        return True
+
 # Initialize game manager
 
     
@@ -2771,6 +2825,15 @@ async def websocket_endpoint(
                                 })
                     else:
                         logger.warning(f"Prediction rejected: game_id={game_id} not in active_games or invalid winner={predicted_winner}")
+
+                # Handle skip game request
+                elif data.get("type") == "skip_game":
+                    logger.info(f"Skip game requested for {game_id}")
+                    skipped = await game_manager.skip_game(game_id)
+                    if skipped:
+                        logger.info(f"Game {game_id} skipped successfully")
+                    else:
+                        logger.warning(f"Could not skip game {game_id}")
 
             except json.JSONDecodeError:
                 pass  # Ignore non-JSON messages (keep-alive, etc.)

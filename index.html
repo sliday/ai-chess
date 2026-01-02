@@ -401,6 +401,9 @@
                                 </div>
                             </div>
                             <div id="commentary" class="commentary text-xs mt-1">Waiting for game to start...</div>
+                            <button id="skipGameBtn" class="btn btn-sm btn-warning mt-2 hidden" onclick="skipGame()">
+                                ⏭️ Skip Stuck Game
+                            </button>
                         </div>
                     </div>
 
@@ -450,11 +453,6 @@
                             <div class="stat-title text-xs">🕰️ Longest Game</div>
                             <div class="stat-value text-lg font-bold" id="stat-longest">-</div>
                             <div class="stat-desc text-xs">Moves to finish</div>
-                        </div>
-                        <div class="stat bg-base-200 rounded-lg p-3">
-                            <div class="stat-title text-xs">🎯 Decisive Rate</div>
-                            <div class="stat-value text-lg font-bold" id="stat-decisive">-</div>
-                            <div class="stat-desc text-xs">Win/loss games</div>
                         </div>
                         <div class="stat bg-base-200 rounded-lg p-3">
                             <div class="stat-title text-xs">🌍 Active Models</div>
@@ -635,6 +633,8 @@
         let lastMove = null;            // Store the last move made for highlighting
         let gameBoard = [];             // Current state of the chess board
         let boardHistory = [];          // History of all board states for replay
+        let waitingForMoveTimer = null; // Timer for showing skip button
+        let waitingStartTime = null;    // When we started waiting for a move
         let currentHistoryIndex = -1;   // Current position in history replay
         let isReplaying = false;        // Whether we're in replay mode
         let replayInterval = null;      // Interval for autoplay
@@ -1239,7 +1239,6 @@
             document.getElementById('stat-activity').textContent = meta.games_per_hour || 0;
             document.getElementById('stat-fastest').textContent = meta.fastest_game || 0;
             document.getElementById('stat-longest').textContent = meta.longest_game || 0;
-            document.getElementById('stat-decisive').textContent = `${meta.decisive_rate || 100}%`;
             document.getElementById('stat-models').textContent = meta.active_models || 0;
             // Format cost as $X.XX or $X.XXXX for very small values
             const avgCost = meta.avg_cost_per_game || 0;
@@ -1599,6 +1598,7 @@
                 case 'move_made':
                     // Handle a move being made by one of the AI models
                     console.log('Move made:', message.data.move);
+                    clearWaitingTimer(); // Hide skip button since move was made
                     handleMoveMade(message.data);
                     break;
 
@@ -1616,10 +1616,15 @@
                         // Just show the status message
                         document.getElementById('commentary').innerHTML = highlightChessAnnotations(escapeHTML(message.data.message));
                     }
+                    // Start timer to show skip button if waiting for a move
+                    if (message.data.message && message.data.message.includes('Waiting for')) {
+                        startWaitingTimer();
+                    }
                     break;
 
                 case 'game_over':
                     // Handle game completion
+                    clearWaitingTimer(); // Hide skip button
                     handleGameOver(message.data);
                     break;
 
@@ -2405,6 +2410,37 @@
                 commentaryElement.classList.add('brilliant-effect');
             }
             // Removed confetti effects since we're using p5.js now
+        }
+
+        // Skip a stuck game
+        function skipGame() {
+            if (socket && socket.readyState === WebSocket.OPEN && currentGameId) {
+                console.log('Skipping stuck game:', currentGameId);
+                socket.send(JSON.stringify({ type: 'skip_game' }));
+                // Hide the button immediately
+                document.getElementById('skipGameBtn').classList.add('hidden');
+                document.getElementById('commentary').textContent = 'Skipping game...';
+                clearWaitingTimer();
+            }
+        }
+
+        // Start timer to show skip button after 30 seconds of waiting
+        function startWaitingTimer() {
+            clearWaitingTimer();
+            waitingStartTime = Date.now();
+            waitingForMoveTimer = setTimeout(() => {
+                document.getElementById('skipGameBtn').classList.remove('hidden');
+            }, 30000); // Show after 30 seconds
+        }
+
+        // Clear the waiting timer and hide skip button
+        function clearWaitingTimer() {
+            if (waitingForMoveTimer) {
+                clearTimeout(waitingForMoveTimer);
+                waitingForMoveTimer = null;
+            }
+            waitingStartTime = null;
+            document.getElementById('skipGameBtn').classList.add('hidden');
         }
 
         // Handle game over event
