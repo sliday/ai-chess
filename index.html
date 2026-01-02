@@ -895,6 +895,7 @@
                 console.log("🔗 Checking shared game:", urlGameId);
                 try {
                     const res = await fetch(`/game_status/${urlGameId}`);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
                     const status = await res.json();
                     if (status.exists && status.status !== 'finished') {
                         // Game exists and is in progress - join it
@@ -933,7 +934,10 @@
                     console.log("Found saved game ID:", savedGameId);
                     // Check if this game still exists on the server
                     fetch(`/game_status/${savedGameId}`)
-                        .then(res => res.json())
+                        .then(res => {
+                            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                            return res.json();
+                        })
                         .then(data => {
                             if (data.exists && data.status !== 'finished') {
                                 console.log("Resuming personal game:", savedGameId);
@@ -1032,6 +1036,7 @@
         async function loadModelCount() {
             try {
                 const response = await fetch('/models/count');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
                 const count = data.count;
 
@@ -1052,6 +1057,7 @@
             try {
                 log("Fetching available models from server");
                 const response = await fetch('/models');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
                 models = data.models;
                 log(`${models.length} models loaded from server`);
@@ -1164,6 +1170,7 @@
         async function loadStats(period = 'daily') {
             try {
                 const response = await fetch(`/stats?period=${period}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
                 updateStats(data);
             } catch (error) {
@@ -1175,6 +1182,7 @@
         async function loadViewers() {
             try {
                 const response = await fetch('/viewers_count');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
                 const count = data.count || 0;
                 updateViewerCount(count);
@@ -1187,6 +1195,7 @@
         async function loadSparklines() {
             try {
                 const response = await fetch('/stats/hourly');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
 
                 // Render sparklines with jQuery Sparkline
@@ -1262,6 +1271,7 @@
         async function loadLeaderboard(minGames = 0) {
             try {
                 const response = await fetch(`/leaderboard?min_games=${minGames}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
                 updateLeaderboard(data.leaderboard);
             } catch (error) {
@@ -1437,6 +1447,7 @@
                         },
                         body: JSON.stringify(requestBody)
                     });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     data = await response.json();
                     currentGameId = data.game_id;
                     // Save personal game to localStorage
@@ -1445,6 +1456,7 @@
                 } else {
                     // Get active game (for auto-start on page load)
                     response = await fetch('/active_game');
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     data = await response.json();
                     currentGameId = data.game_id;
                     // Don't save shared game to localStorage

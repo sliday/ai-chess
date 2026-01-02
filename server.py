@@ -269,8 +269,6 @@ ANNOTATION_SYMBOLS = {
     "#": "Checkmate"
 }
 
-# Global variable for last move cost (set by call_model, read by game loop)
-_last_move_cost = 0.0
 
 # Model for API requests
 class ModelSelectionRequest(BaseModel):
@@ -702,27 +700,35 @@ class GameManager:
 
     async def disconnect_and_broadcast(self, websocket: WebSocket, game_id: str):
         """Disconnect a websocket and broadcast updated viewer count"""
-        if game_id in self.connections:
-            if websocket in self.connections[game_id]:
-                self.connections[game_id].remove(websocket)
+        # Use try/except for safe removal (avoids TOCTOU race)
+        game_conns = self.connections.get(game_id)
+        if game_conns:
+            try:
+                game_conns.remove(websocket)
                 logger.info(f"Client disconnected from game {game_id}")
                 # Broadcast updated viewer count (includes bots)
-                actual_viewers = len(self.connections.get(game_id, []))
+                actual_viewers = len(game_conns)
                 await self.broadcast(game_id, {
                     "type": "viewer_count",
                     "count": actual_viewers + NUM_CHAT_BOTS
                 })
+            except ValueError:
+                pass  # websocket not in list
         # Clean up chat connections
         chat_scope = self.connection_chat_scope.pop(websocket, None)
-        if chat_scope and chat_scope in self.chat_connections:
-            if websocket in self.chat_connections[chat_scope]:
-                self.chat_connections[chat_scope].remove(websocket)
-                # Broadcast updated chat viewer count (includes bots)
-                actual_count = len(self.chat_connections.get(chat_scope, []))
-                await self.broadcast_chat(chat_scope, {
-                    "type": "chat_viewer_count",
-                    "count": actual_count + NUM_CHAT_BOTS
-                })
+        if chat_scope:
+            chat_conns = self.chat_connections.get(chat_scope)
+            if chat_conns:
+                try:
+                    chat_conns.remove(websocket)
+                    # Broadcast updated chat viewer count (includes bots)
+                    actual_count = len(chat_conns)
+                    await self.broadcast_chat(chat_scope, {
+                        "type": "chat_viewer_count",
+                        "count": actual_count + NUM_CHAT_BOTS
+                    })
+                except ValueError:
+                    pass  # websocket not in list
         # Clean up other chat metadata
         self.connection_usernames.pop(websocket, None)
         self.last_chat_time.pop(websocket, None)
@@ -894,17 +900,15 @@ No intro, no outro, only your next move in proper UCI format (e.g., "e2e4" for m
                 })
                 
                 # Call model
-                raw_move = await call_model(current_model, prompt)
+                raw_move, move_cost = await call_model(current_model, prompt)
                 logger.info(f"Received raw move '{raw_move}' from model {current_model}")
 
                 # Track cost for current player
-                global _last_move_cost
-                if _last_move_cost > 0:
+                if move_cost > 0:
                     if game.current_player == 0:
-                        game.cost_model1 += _last_move_cost
+                        game.cost_model1 += move_cost
                     else:
-                        game.cost_model2 += _last_move_cost
-                    _last_move_cost = 0.0  # Reset after tracking
+                        game.cost_model2 += move_cost
 
                 if not raw_move:
                     logger.error(f"Model {current_model} timed out - forfeiting")
@@ -1033,16 +1037,15 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
 {fallback_user_msg}
 """
 
-                        raw_move = await call_model(current_model, retry_prompt)
+                        raw_move, retry_cost = await call_model(current_model, retry_prompt)
                         logger.info(f"📥 New raw move received: '{raw_move}'")
 
                         # Track cost for retry moves
-                        if _last_move_cost > 0:
+                        if retry_cost > 0:
                             if game.current_player == 0:
-                                game.cost_model1 += _last_move_cost
+                                game.cost_model1 += retry_cost
                             else:
-                                game.cost_model2 += _last_move_cost
-                            _last_move_cost = 0.0
+                                game.cost_model2 += retry_cost
                         if not raw_move:
                             logger.error(f"Empty response from model on retry {retry_count}")
                             continue
@@ -1340,8 +1343,8 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
     
     def end_game(self, game_id: str):
         """End a game and save results if needed"""
-        if game_id in self.active_games:
-            game = self.active_games[game_id]
+        game = self.active_games.get(game_id)
+        if game:
             if game.status == "finished":
                 # Resolve predictions
                 if game.winner is not None:
@@ -1360,9 +1363,8 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
                     self.save_result(result, game)
 
             # Remove game and clean up task reference
-            del self.active_games[game_id]
-            if game_id in self.game_tasks:
-                del self.game_tasks[game_id]
+            self.active_games.pop(game_id, None)
+            self.game_tasks.pop(game_id, None)
     
     def get_leaderboard(self, min_games: int = 0) -> List[Dict[str, Any]]:
         """Generate a leaderboard based on game results"""
@@ -1818,16 +1820,19 @@ No explanation, no additional text.
             logger.error(f"Error interpreting move '{raw_move}': {e}")
             return "INVALID"
 
-async def call_model(model: str, prompt: str, max_retries: int = MAX_API_RETRIES) -> str:
+async def call_model(model: str, prompt: str, max_retries: int = MAX_API_RETRIES) -> tuple:
     """Call a model via OpenRouter API with improved retry logic and model ID handling
-    
+
     This function handles all aspects of communicating with the OpenRouter API including:
     - Normalizing model IDs for consistent handling
     - Special handling for model suffixes (like ":extended")
     - Structured prompting with system and user messages
     - Sophisticated retry logic with progressive fallbacks
     - Robust error handling and logging
-    
+
+    Returns:
+        Tuple of (move: str, cost: float) - the move string and API cost
+
     Args:
         model: The OpenRouter model ID to use
         prompt: The chess-related prompt to send to the model
@@ -1973,7 +1978,7 @@ Your move:
                         # Skip to next attempt without counting this as a retry
                         continue
                     elif attempt >= max_retries:
-                        return ""
+                        return ("", 0.0)
 
                 # Log partial response to avoid excessive logging
                 log_response = {
@@ -1987,11 +1992,10 @@ Your move:
                 # Extract and log cost data if available
                 usage = response_data.get("usage", {})
                 cost = usage.get("total_cost", 0) or usage.get("cost", 0)
+                move_cost = 0.0
                 if cost:
                     logger.info(f"💰 Move cost: ${cost:.6f} ({usage.get('prompt_tokens', 0)} prompt + {usage.get('completion_tokens', 0)} completion tokens)")
-                    # Store last cost globally for broadcasting
-                    global _last_move_cost
-                    _last_move_cost = cost
+                    move_cost = cost
 
                 if "choices" in response_data and len(response_data["choices"]) > 0 and not no_content:
                     move = response_data["choices"][0]["message"]["content"].strip()
@@ -2008,21 +2012,21 @@ Your move:
                         logger.warning(f"Model response is longer than expected ({len(move)} chars): '{move}'")
                     
                     # Allow slightly longer response to handle more varied formats
-                    return move[:30]
+                    return (move[:30], move_cost)
                 else:
                     logger.warning(f"No valid response content from {current_model} (attempt {attempt+1})")
                     # Try again if we have retries left
                     if attempt < max_retries:
                         await asyncio.sleep(1.5)  # Slightly longer pause before retry
                         continue
-                    return ""
+                    return ("", 0.0)
 
         except httpx.TimeoutException:
             logger.error(f"Timeout calling model {current_model} (attempt {attempt+1})")
             if attempt < max_retries:
                 await asyncio.sleep(1.5)  # Slightly longer pause before retry
                 continue
-            return ""
+            return ("", 0.0)
 
         except Exception as e:
             logger.error(f"Error calling model {current_model} (attempt {attempt+1}): {e}")
@@ -2037,7 +2041,7 @@ Your move:
                         error_msg = error_data.get("error", {}).get("message", "")
                         if "no endpoints" in error_msg.lower() or "not found" in error_msg.lower():
                             logger.warning(f"Model {current_model} unavailable (404 - {error_msg}), forfeiting")
-                            return ""  # Forfeit - don't retry unavailable models
+                            return ("", 0.0)  # Forfeit - don't retry unavailable models
                     except (ValueError, KeyError):
                         pass
 
@@ -2054,11 +2058,11 @@ Your move:
             if attempt < max_retries:
                 await asyncio.sleep(1.5)  # Slightly longer pause before retry
                 continue
-            return ""
-    
+            return ("", 0.0)
+
     # If we've exhausted all retries
     logger.error(f"All retry attempts failed for model {model_id}")
-    return ""
+    return ("", 0.0)
 
 async def get_commentary(board_state: str, last_move: str, moves_history: list = None, board_image_base64: str = None) -> str:
     """Get chess commentary asynchronously without blocking the game"""
@@ -2633,8 +2637,8 @@ async def get_viewers_count():
 @app.get("/game_status/{game_id}")
 async def get_game_status(game_id: str):
     """Check if a game exists and get its status"""
-    if game_id in game_manager.active_games:
-        game = game_manager.active_games[game_id]
+    game = game_manager.active_games.get(game_id)
+    if game:
         return {
             "exists": True,
             "status": game.status,
@@ -2694,8 +2698,8 @@ async def websocket_endpoint(
 
     try:
         # Send current state immediately
-        if game_id in game_manager.active_games:
-            game = game_manager.active_games[game_id]
+        game = game_manager.active_games.get(game_id)
+        if game:
             await websocket.send_json({
                 "type": "game_state",
                 "data": {
@@ -2740,7 +2744,7 @@ async def websocket_endpoint(
         })
 
         # Send prediction counts for the game
-        if game_id in game_manager.active_games:
+        if game_manager.active_games.get(game_id):
             pred_counts = database.get_predictions(game_id)
             user_pred = database.get_user_prediction(game_id, username)
             await websocket.send_json({
@@ -2764,10 +2768,11 @@ async def websocket_endpoint(
             try:
                 data = json.loads(message)
                 # Handle board image upload from client
-                if data.get("type") == "board_image" and game_id in game_manager.active_games:
-                    game = game_manager.active_games[game_id]
-                    game.board_image_base64 = data.get("image")
-                    logger.debug(f"Received board image for game {game_id}")
+                if data.get("type") == "board_image":
+                    game = game_manager.active_games.get(game_id)
+                    if game:
+                        game.board_image_base64 = data.get("image")
+                        logger.debug(f"Received board image for game {game_id}")
 
                 # Handle chat message
                 elif data.get("type") == "chat_message":
@@ -2831,8 +2836,8 @@ async def websocket_endpoint(
                                         viewer_count = game_manager.get_chat_viewer_count("lobby")
                                         white_model = None
                                         black_model = None
-                                        if game_id in game_manager.active_games:
-                                            current_game = game_manager.active_games[game_id]
+                                        current_game = game_manager.active_games.get(game_id)
+                                        if current_game:
                                             white_model = current_game.model1
                                             black_model = current_game.model2
                                         bot_response = await get_chat_bot_response(
@@ -2866,8 +2871,8 @@ async def websocket_endpoint(
                 elif data.get("type") == "prediction":
                     predicted_winner = data.get("winner")  # 0 for white, 1 for black
                     logger.info(f"Prediction received: game={game_id}, winner={predicted_winner}")
-                    if game_id in game_manager.active_games and predicted_winner in [0, 1]:
-                        game = game_manager.active_games[game_id]
+                    game = game_manager.active_games.get(game_id) if predicted_winner in [0, 1] else None
+                    if game:
                         logger.info(f"Game status: {game.status}")
                         if game.status == "in_progress":
                             user_data = game_manager.connection_usernames.get(websocket, ("Anonymous", "text-gray-500"))
@@ -2883,8 +2888,10 @@ async def websocket_endpoint(
                                     "white_predictions": counts["white_predictions"],
                                     "black_predictions": counts["black_predictions"]
                                 })
+                    elif predicted_winner not in [0, 1]:
+                        logger.warning(f"Prediction rejected: invalid winner={predicted_winner}")
                     else:
-                        logger.warning(f"Prediction rejected: game_id={game_id} not in active_games or invalid winner={predicted_winner}")
+                        logger.warning(f"Prediction rejected: game_id={game_id} not in active_games")
 
                 # Handle skip game request
                 elif data.get("type") == "skip_game":
