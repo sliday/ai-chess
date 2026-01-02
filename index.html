@@ -1933,10 +1933,10 @@
             // Add star indicator for previous winner (regardless of current side)
             if (previousWinner && previousWinner.model) {
                 if (data.model1 === previousWinner.model) {
-                    model1Element.innerHTML = `⭐ ${formatPlayerName(data.model1)}`;
+                    model1Element.innerHTML = `⭐ ${escapeHTML(formatPlayerName(data.model1))}`;
                     model1Element.title = 'Won previous game';
                 } else if (data.model2 === previousWinner.model) {
-                    model2Element.innerHTML = `⭐ ${formatPlayerName(data.model2)}`;
+                    model2Element.innerHTML = `⭐ ${escapeHTML(formatPlayerName(data.model2))}`;
                     model2Element.title = 'Won previous game';
                 } else {
                     // Winner not in this game, clear tooltips

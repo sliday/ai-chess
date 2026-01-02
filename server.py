@@ -2287,6 +2287,7 @@ Say something or stay quiet. 2-4 words max."""
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(OPENROUTER_API_URL, json=data, headers=headers)
+            response.raise_for_status()
             response_data = response.json()
 
             if "choices" in response_data and len(response_data["choices"]) > 0:
