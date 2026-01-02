@@ -578,17 +578,24 @@
 
     <!-- Start Game with Model Modal -->
     <dialog id="startWithModelModal" class="modal">
-        <div class="modal-box max-w-md relative">
-            <h3 class="font-bold text-lg mb-3">🎯 Start New Game</h3>
-            <p class="text-sm mb-4">
-                Start a new game with <strong id="selectedModelName" class="text-primary"></strong> playing as White?
-            </p>
-            <p class="text-xs text-gray-500 mb-4">
-                A random opponent will be selected to play as Black.
-            </p>
-            <div class="modal-action">
-                <button class="btn btn-ghost" onclick="document.getElementById('startWithModelModal').close()">Cancel</button>
-                <button id="confirmStartWithModel" class="btn btn-primary">Start</button>
+        <div class="modal-box max-w-md max-h-[90vh] flex flex-col relative">
+            <!-- Close button (X) in top-right corner -->
+            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="document.getElementById('startWithModelModal').close()">✕</button>
+
+            <div class="text-center flex-1 pt-2 pb-4">
+                <div class="text-5xl sm:text-6xl mb-3">🎯</div>
+                <h3 class="font-bold text-xl sm:text-2xl mb-2">Start New Game</h3>
+                <p class="text-sm mb-3">
+                    Play with <strong id="selectedModelName" class="text-primary"></strong> as White?
+                </p>
+                <p class="text-xs text-base-content/60">
+                    A random opponent will be selected to play as Black.
+                </p>
+            </div>
+
+            <div class="modal-action justify-center mt-2 flex-shrink-0 gap-2">
+                <button class="btn btn-sm btn-ghost" onclick="document.getElementById('startWithModelModal').close()">Cancel</button>
+                <button id="confirmStartWithModel" class="btn btn-sm btn-primary">▶️ Start Game</button>
             </div>
         </div>
     </dialog>

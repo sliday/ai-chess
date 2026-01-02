@@ -167,8 +167,10 @@ Connection: `ws://host/ws/{game_id}`
 - Two AI bots with distinct personalities generated on server start
 - Hype Bot: enthusiastic, uses caps for excitement, roots for underdogs
 - Skeptic Bot: dry humor, questions everything, lowkey pessimistic
-- Event-based probabilities: 85% on brilliant moves, 90% on blunders, 95% on game end
-- Rate limits: 8s (hype bot), 12s (skeptic bot)
+- Event-based probabilities: 50% normal moves, 75% good moves, 95% brilliant/blunder, 100% game end
+- Rate limits: 5s (hype bot), 8s (skeptic bot)
+- Activity multipliers: 1.2 (hype), 1.0 (skeptic)
+- Reacts to game endings with winner/loser context
 - Each bot has unique name (adjective + animal + emoji) and color
 
 **Skip Stuck Games:**

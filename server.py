@@ -173,15 +173,15 @@ CHAT_BOT_MODEL = "openai/gpt-5.2"
 
 # Event-based probabilities for chat bots
 CHAT_BOT_PROBABILITIES = {
-    "normal_move": 0.4,      # 40% chance on regular moves (was 20%)
-    "good_move": 0.6,        # 60% on ! moves (was 40%)
-    "brilliant_move": 0.85,  # 85% on !! moves (was 70%)
-    "mistake": 0.7,          # 70% on ? moves (was 50%)
-    "blunder": 0.9,          # 90% on ?? moves (was 80%)
-    "game_over": 0.95,       # 95% on game end (was 90%)
-    "chat_response": 0.6,    # 60% to respond to interesting chat
-    "question_response": 0.9, # 90% to respond to user questions (?)
-    "question_initiate": 0.15  # 15% to ask random question
+    "normal_move": 0.5,      # 50% chance on regular moves (was 40%)
+    "good_move": 0.75,       # 75% on ! moves (was 60%)
+    "brilliant_move": 0.95,  # 95% on !! moves (was 85%)
+    "mistake": 0.8,          # 80% on ? moves (was 70%)
+    "blunder": 0.95,         # 95% on ?? moves (was 90%)
+    "game_over": 1.0,        # 100% on game end - always react!
+    "chat_response": 0.7,    # 70% to respond to interesting chat (was 60%)
+    "question_response": 0.95, # 95% to respond to user questions (was 90%)
+    "question_initiate": 0.2   # 20% to ask random question (was 15%)
 }
 
 # Chat bot name pools (noun + matching emoji pairs)
@@ -209,8 +209,8 @@ _bot1_name, _bot1_color = generate_chat_bot_name()
 CHAT_BOT_1 = {
     "username": _bot1_name,
     "color": _bot1_color,
-    "rate_limit": 8,  # Reduced from 15 for more activity
-    "activity_multiplier": 1.0,
+    "rate_limit": 5,  # 5 seconds between messages
+    "activity_multiplier": 1.2,
     "last_message_time": 0,
     "recent_messages": [],  # Track last 5 to avoid repetition
     "personality": "hype",
@@ -227,8 +227,8 @@ while _bot2_color == _bot1_color:
 CHAT_BOT_2 = {
     "username": _bot2_name,
     "color": _bot2_color,
-    "rate_limit": 12,  # Reduced from 20 for more activity
-    "activity_multiplier": 0.8,  # Increased from 0.6 for more activity
+    "rate_limit": 8,  # 8 seconds between messages
+    "activity_multiplier": 1.0,
     "last_message_time": 0,
     "recent_messages": [],  # Track last 5 to avoid repetition
     "personality": "skeptic",
@@ -1187,6 +1187,37 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
                     "friendly_reason": friendly_reason
                 }
             })
+
+            # Trigger chat bots to react to game end
+            try:
+                winner_model = game.model1 if game.winner == 0 else game.model2
+                loser_model = game.model2 if game.winner == 0 else game.model1
+                game_over_commentary = f"Game Over! {winner_model.split('/')[-1]} wins against {loser_model.split('/')[-1]}. {friendly_reason}"
+
+                chat_history = database.get_chat_messages("lobby", limit=10)
+                viewer_count = self.get_chat_viewer_count("lobby")
+                bot_responses = await trigger_chat_bots(
+                    commentary=game_over_commentary,
+                    chat_history=chat_history,
+                    viewer_count=viewer_count,
+                    white_model=game.model1,
+                    black_model=game.model2,
+                    event_type="game_over"
+                )
+                for bot, response in bot_responses:
+                    now = time.time()
+                    bot_msg = {
+                        "type": "chat_message",
+                        "username": bot["username"],
+                        "text": response,
+                        "timestamp": now,
+                        "color": bot["color"]
+                    }
+                    database.save_chat_message("lobby", bot["username"], response, now, bot["color"])
+                    await self.broadcast_chat("lobby", bot_msg)
+                    await asyncio.sleep(random.uniform(0.5, 1.5))  # Stagger bot messages
+            except Exception as bot_err:
+                logger.error(f"Chat bot game_over error: {bot_err}")
 
             # Start new autonomous game after delay (only if this was the autonomous game)
             if is_autonomous:
@@ -2193,12 +2224,12 @@ Recent chat:
 
 React to what they said. Agree, disagree, or comment. 2-5 words. Stay in character."""
         elif event_type == "game_over":
-            user_prompt = f"""Game just ended. Commentary: {commentary}
+            user_prompt = f"""GAME OVER! {commentary}
 
 Chat:
 {chat_context}
 
-React to the game ending. 2-4 words."""
+React to the winner/loser! Be excited or disappointed based on your personality. 2-5 words."""
         elif event_type in ("blunder", "mistake"):
             user_prompt = f"""Bad move happened. Commentary: {commentary}
 
