@@ -157,7 +157,7 @@ COMMENTATOR_MODEL = "google/gemini-3-flash-preview"
 CHAT_BOT_MODEL = "openai/gpt-5.2"
 CHAT_BOT_COLOR = "text-emerald-400"
 CHAT_BOT_RATE_LIMIT = 10  # Minimum seconds between bot messages
-CHAT_BOT_COMMENT_CHANCE = 0.5  # 50% chance to comment on moves
+CHAT_BOT_COMMENT_CHANCE = 0.2  # 20% chance to comment on moves
 
 # Chat bot name generation (separate from user names)
 CHAT_BOT_ADJECTIVES = ["Cynical", "Brooding", "Sardonic", "Morose", "Jaded", "Weary", "Gloomy", "Deadpan", "Bitter", "Wry"]
@@ -615,10 +615,12 @@ class GameManager:
         if chat_scope and chat_scope in self.chat_connections:
             if websocket in self.chat_connections[chat_scope]:
                 self.chat_connections[chat_scope].remove(websocket)
-                # Broadcast updated chat viewer count
+                # Broadcast updated chat viewer count (+1 for bot in lobby)
+                actual_count = len(self.chat_connections.get(chat_scope, []))
+                display_count = actual_count + 1 if chat_scope == "lobby" else actual_count
                 await self.broadcast_chat(chat_scope, {
                     "type": "chat_viewer_count",
-                    "count": len(self.chat_connections.get(chat_scope, []))
+                    "count": display_count
                 })
         # Clean up other chat metadata
         self.connection_usernames.pop(websocket, None)
@@ -1966,85 +1968,36 @@ Feel free to have opinions about the companies based on common knowledge (openai
             # Bot wants to start a conversation with other chatters
             recent_usernames = list(set([msg['username'] for msg in chat_history[-5:] if msg['username'] != CHAT_BOT_USERNAME]))
 
-            system_prompt = f"""You're a real person watching AI chess on a stream. Your username is {CHAT_BOT_USERNAME}.
-
-Sound like a real human in chat:
-- Mostly type correctly, but VERY rarely (like 1 in 10 messages) make a small typo
-- Can skip apostrophes sometimes: dont, cant, wont, thats
-- Some slang is ok: lol, ngl, tbh, idk, gonna, kinda, tho, yea, nah
-- Lowercase is fine, caps for EMPHASIS sometimes
-- Casual punctuation - can skip periods or use ...
-- React genuinely to the game
-- Reference other chatters by name naturally
-- NO emojis NO hashtags
-
-{audience_context}
+            system_prompt = f"""You're {CHAT_BOT_USERNAME}, watching AI chess. Be VERY concise (2-6 words).
 {game_context}
-
-Start a casual conversation - ask someone a question or make an observation that invites response."""
+Casual chat style, no emojis. Can reference models/companies."""
 
             if recent_usernames:
-                user_prompt = f"""Chat history:
-{chat_context}
-
-Other chatters: {', '.join(recent_usernames)}
-
-Ask someone a question or make a comment that could start a convo. Be natural and casual, like ur genuinely curious. Maybe ask about the game, the models, or just chat."""
+                user_prompt = f"""Chat: {chat_context}
+Chatters: {', '.join(recent_usernames)}
+Ask a short question to start convo."""
             else:
-                user_prompt = f"""Chat history:
-{chat_context}
-
-Say something that might get others to respond. Could be about the game, the AI models, or just a random thought. Be natural."""
+                user_prompt = f"""Chat: {chat_context}
+Say something short that might get a response."""
 
         elif direct_mention and user_message:
             # Someone is talking to us directly
-            system_prompt = f"""You're a real person watching AI chess on a stream. Your username is {CHAT_BOT_USERNAME}.
-
-Sound like a real human in chat:
-- Mostly type correctly, but VERY rarely (like 1 in 10 messages) make a small typo
-- Can skip apostrophes sometimes: dont, cant, wont, thats
-- Some slang is ok: lol, ngl, tbh, idk, gonna, kinda, tho, yea, nah
-- Lowercase is fine, caps for EMPHASIS sometimes
-- Casual punctuation - can skip periods or use ...
-- Vary length naturally - sometimes short, sometimes longer
-- React genuinely - agree, disagree, joke around, be curious
-- Ask follow-up questions sometimes
-- NO emojis NO hashtags
-
-{audience_context}
+            system_prompt = f"""You're {CHAT_BOT_USERNAME}, watching AI chess. Keep replies short (2-8 words usually).
 {game_context}
+Casual, no emojis. Can ask follow-up questions."""
 
-Be conversational and genuine."""
-
-            user_prompt = f"""Someone said to you: "{user_message}"
+            user_prompt = f""""{user_message}"
 {chat_context}
-
-Reply naturally like a real person chatting. Be genuine."""
+Reply briefly."""
         else:
             # Reacting to game commentary
-            system_prompt = f"""You're a real person watching AI chess on a stream. Your username is {CHAT_BOT_USERNAME}.
-
-Sound like a real human in chat:
-- Mostly type correctly, but VERY rarely (like 1 in 10 messages) make a small typo
-- Can skip apostrophes sometimes: dont, cant, wont, thats
-- Some slang is ok: lol, ngl, tbh, idk, gonna, kinda, tho, yea, nah
-- Lowercase is fine, caps for EMPHASIS sometimes
-- Casual punctuation - can skip periods or use ...
-- Keep it short (3-10 words usually)
-- React genuinely to moves - hype, disappointment, confusion, hot takes
-- Reference the AI models by name sometimes
-- Can reply to other chatters if they said something interesting
-- NO emojis NO hashtags
-
-{audience_context}
+            system_prompt = f"""You're {CHAT_BOT_USERNAME}, watching AI chess. Be VERY concise (2-6 words max).
 {game_context}
+React to moves briefly. Casual style, no emojis. Can mention model names."""
 
-Output ONLY the chat message. No quotes, no prefix."""
-
-            user_prompt = f"""Game commentary: {commentary}
+            user_prompt = f"""Commentary: {commentary}
 {chat_context}
-
-React to the game like a real viewer. Short and natural."""
+Short reaction (2-6 words)."""
 
         data = {
             "model": CHAT_BOT_MODEL,
@@ -2406,13 +2359,15 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, chat_scope: str
         username, color = user_data if isinstance(user_data, tuple) else (user_data, "text-gray-500")
         viewer_count = game_manager.get_viewer_count(game_id)
         chat_viewer_count = game_manager.get_chat_viewer_count(effective_chat_scope)
+        # Add +1 for the chat bot (always present in lobby)
+        display_chat_viewers = chat_viewer_count + 1 if effective_chat_scope == "lobby" else chat_viewer_count
         await websocket.send_json({
             "type": "welcome",
             "username": username,
             "color": color,
             "viewers": viewer_count,
             "chat_scope": effective_chat_scope,
-            "chat_viewers": chat_viewer_count
+            "chat_viewers": display_chat_viewers
         })
 
         # Broadcast updated viewer count to all game watchers
@@ -2421,7 +2376,7 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, chat_scope: str
         # Broadcast updated chat viewer count to all in same chat scope
         await game_manager.broadcast_chat(effective_chat_scope, {
             "type": "chat_viewer_count",
-            "count": chat_viewer_count
+            "count": display_chat_viewers
         })
 
         # Send recent chat messages from chat scope (lobby or game-specific)
