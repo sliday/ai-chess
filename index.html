@@ -1135,16 +1135,7 @@
                 const response = await fetch('/viewers_count');
                 const data = await response.json();
                 const count = data.count || 0;
-
-                document.getElementById('viewersCount').textContent = count;
-
-                // Show/hide badge based on viewer count
-                const badge = document.getElementById('viewersBadge');
-                if (count > 0) {
-                    badge.style.display = 'inline-block';
-                } else {
-                    badge.style.display = 'none';
-                }
+                updateViewerCount(count);
             } catch (error) {
                 console.error('Error loading viewers:', error);
             }
