@@ -94,10 +94,16 @@ def init_db():
                 game_id TEXT NOT NULL,
                 username TEXT NOT NULL,
                 message TEXT NOT NULL,
-                timestamp REAL NOT NULL
+                timestamp REAL NOT NULL,
+                color TEXT DEFAULT 'text-gray-500'
             )
             ''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_game ON chat_messages(game_id)')
+            # Add color column if missing (migration for existing databases)
+            try:
+                cursor.execute('ALTER TABLE chat_messages ADD COLUMN color TEXT DEFAULT "text-gray-500"')
+            except:
+                pass  # Column already exists
 
             conn.commit()
             logger.info("Database initialized successfully")
@@ -553,14 +559,14 @@ def get_hourly_stats() -> Dict[str, Any]:
             "avg_length": [0] * 24
         }
 
-def save_chat_message(game_id: str, username: str, message: str, timestamp: float):
+def save_chat_message(game_id: str, username: str, message: str, timestamp: float, color: str = "text-gray-500"):
     """Save a chat message to database"""
     try:
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                'INSERT INTO chat_messages (game_id, username, message, timestamp) VALUES (?, ?, ?, ?)',
-                (game_id, username, message, timestamp)
+                'INSERT INTO chat_messages (game_id, username, message, timestamp, color) VALUES (?, ?, ?, ?, ?)',
+                (game_id, username, message, timestamp, color)
             )
             conn.commit()
     except Exception as e:
@@ -572,11 +578,11 @@ def get_chat_messages(game_id: str, limit: int = 50) -> List[Dict[str, Any]]:
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                'SELECT username, message, timestamp FROM chat_messages WHERE game_id = ? ORDER BY timestamp DESC LIMIT ?',
+                'SELECT username, message, timestamp, color FROM chat_messages WHERE game_id = ? ORDER BY timestamp DESC LIMIT ?',
                 (game_id, limit)
             )
             rows = cursor.fetchall()
-            return [{"username": r[0], "text": r[1], "timestamp": r[2]} for r in reversed(rows)]
+            return [{"username": r[0], "text": r[1], "timestamp": r[2], "color": r[3] or "text-gray-500"} for r in reversed(rows)]
     except Exception as e:
         logger.error(f"Failed to get chat messages: {e}")
         return []

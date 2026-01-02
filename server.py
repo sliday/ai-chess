@@ -531,17 +531,25 @@ class GameManager:
         ("Knight", "♞"), ("Rook", "♜"), ("Wizard", "🧙"), ("Ninja", "🥷"), ("Pirate", "🏴‍☠️")
     ]
     CHAT_NUMERALS = ["II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
+    # Tailwind-safe colors for chat usernames
+    CHAT_COLORS = [
+        "text-red-500", "text-orange-500", "text-amber-600", "text-yellow-600",
+        "text-lime-600", "text-green-600", "text-emerald-500", "text-teal-500",
+        "text-cyan-600", "text-sky-500", "text-blue-500", "text-indigo-500",
+        "text-violet-500", "text-purple-500", "text-fuchsia-500", "text-pink-500"
+    ]
 
-    def _generate_username(self) -> str:
-        """Generate a unique username, adding numerals only when base names exhausted"""
-        used = set(self.connection_usernames.values())
+    def _generate_username(self) -> tuple:
+        """Generate a unique username and color, adding numerals only when base names exhausted"""
+        used = set(u for u, c in self.connection_usernames.values())
 
         # Try base names first (no numeral)
         for adj in random.sample(self.CHAT_ADJECTIVES, len(self.CHAT_ADJECTIVES)):
             for noun, emoji in random.sample(self.CHAT_NOUNS, len(self.CHAT_NOUNS)):
                 username = f"{adj} {noun} {emoji}"
                 if username not in used:
-                    return username
+                    color = random.choice(self.CHAT_COLORS)
+                    return username, color
 
         # All 320 base names taken, add numerals
         for numeral in self.CHAT_NUMERALS:
@@ -549,10 +557,11 @@ class GameManager:
                 for noun, emoji in random.sample(self.CHAT_NOUNS, len(self.CHAT_NOUNS)):
                     username = f"{adj} {noun} {numeral} {emoji}"
                     if username not in used:
-                        return username
+                        color = random.choice(self.CHAT_COLORS)
+                        return username, color
 
         # Fallback (extremely unlikely: 320 + 2880 = 3200 users)
-        return f"Guest_{random.randint(10000, 99999)}"
+        return f"Guest_{random.randint(10000, 99999)}", "text-gray-500"
 
     async def connect(self, websocket: WebSocket, game_id: str):
         """Connect a websocket to a game"""
@@ -560,9 +569,9 @@ class GameManager:
         if game_id not in self.connections:
             self.connections[game_id] = []
         self.connections[game_id].append(websocket)
-        # Assign anonymous username
-        username = self._generate_username()
-        self.connection_usernames[websocket] = username
+        # Assign anonymous username and color
+        username, color = self._generate_username()
+        self.connection_usernames[websocket] = (username, color)
         logger.info(f"Client connected to game {game_id} as {username}. Total clients: {len(self.connections[game_id])}")
         
     def disconnect(self, websocket: WebSocket, game_id: str):
@@ -2084,9 +2093,10 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                 }
             })
 
-        # Send username to client (for chat)
-        username = game_manager.connection_usernames.get(websocket, "Spectator")
-        await websocket.send_json({"type": "welcome", "username": username})
+        # Send username and color to client (for chat)
+        user_data = game_manager.connection_usernames.get(websocket, ("Spectator", "text-gray-500"))
+        username, color = user_data if isinstance(user_data, tuple) else (user_data, "text-gray-500")
+        await websocket.send_json({"type": "welcome", "username": username, "color": color})
 
         # Send recent chat messages from database
         chat_history = database.get_chat_messages(game_id, limit=30)
@@ -2115,7 +2125,8 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                     if now - last < 1.0:
                         continue  # Silently ignore rapid messages
 
-                    username = game_manager.connection_usernames.get(websocket, "Anonymous")
+                    user_data = game_manager.connection_usernames.get(websocket, ("Anonymous", "text-gray-500"))
+                    username, color = user_data if isinstance(user_data, tuple) else (user_data, "text-gray-500")
                     text = data.get("text", "")[:200]  # Max 200 chars
 
                     if text.strip():
@@ -2124,10 +2135,11 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                             "type": "chat_message",
                             "username": username,
                             "text": text,
-                            "timestamp": now
+                            "timestamp": now,
+                            "color": color
                         }
                         # Save to database
-                        database.save_chat_message(game_id, username, text, now)
+                        database.save_chat_message(game_id, username, text, now, color)
                         # Broadcast to all viewers
                         await game_manager.broadcast(game_id, msg)
 

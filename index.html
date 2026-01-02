@@ -273,6 +273,20 @@
             }
         }
 
+        /* Chat pulse animation for new messages */
+        .chat-pulse {
+            animation: chat-glow 1s ease-out;
+        }
+
+        @keyframes chat-glow {
+            0%, 100% {
+                box-shadow: none;
+            }
+            50% {
+                box-shadow: 0 0 8px 2px #22c55e;
+            }
+        }
+
         </style>
 </head>
 
@@ -614,6 +628,7 @@
         let autoStartTimer = null;      // Auto-start new game timer
         let autoStartCountdown = 300;   // Countdown seconds (5 minutes = 300s)
         let myUsername = 'Spectator';   // Chat username assigned by server
+        let myColor = 'text-primary';   // Chat color assigned by server
 
         // p5.js variables
         let chessCanvas;
@@ -1574,9 +1589,10 @@
                     break;
 
                 case 'welcome':
-                    // Server assigned us a username for chat
+                    // Server assigned us a username and color for chat
                     myUsername = message.username;
-                    log(`Assigned chat username: ${myUsername}`);
+                    myColor = message.color || 'text-primary';
+                    log(`Assigned chat username: ${myUsername} (${myColor})`);
                     break;
 
                 case 'chat_message':
@@ -1588,7 +1604,7 @@
                     // Load chat history on connect
                     const chatDiv = document.getElementById('chatMessages');
                     chatDiv.innerHTML = '';
-                    message.messages.forEach(appendChatMessage);
+                    message.messages.forEach(m => appendChatMessage(m, true));
                     break;
 
                 default:
@@ -1598,40 +1614,25 @@
 
         /**
          * Append a chat message to the chat panel
-         * @param {Object} msg - Message with username, text, timestamp
+         * @param {Object} msg - Message with username, text, timestamp, color
+         * @param {boolean} isHistory - True if loading history (no pulse)
          */
-        // Tailwind-safe colors for chat usernames (500/600 variants)
-        const CHAT_COLORS = [
-            'text-red-500', 'text-orange-500', 'text-amber-600', 'text-yellow-600',
-            'text-lime-600', 'text-green-600', 'text-emerald-500', 'text-teal-500',
-            'text-cyan-600', 'text-sky-500', 'text-blue-500', 'text-indigo-500',
-            'text-violet-500', 'text-purple-500', 'text-fuchsia-500', 'text-pink-500'
-        ];
-        const usernameColorCache = {};
-
-        /**
-         * Get a consistent color for a username (hash-based)
-         */
-        function getUsernameColor(username) {
-            if (usernameColorCache[username]) return usernameColorCache[username];
-            let hash = 0;
-            for (let i = 0; i < username.length; i++) {
-                hash = ((hash << 5) - hash) + username.charCodeAt(i);
-                hash |= 0;
-            }
-            const color = CHAT_COLORS[Math.abs(hash) % CHAT_COLORS.length];
-            usernameColorCache[username] = color;
-            return color;
-        }
-
-        function appendChatMessage(msg) {
+        function appendChatMessage(msg, isHistory = false) {
             const chat = document.getElementById('chatMessages');
             const isMe = msg.username === myUsername;
-            const colorClass = isMe ? 'text-primary' : getUsernameColor(msg.username);
+            // Use server-provided color, fallback to primary for own messages
+            const colorClass = isMe ? myColor : (msg.color || 'text-gray-500');
             const div = document.createElement('div');
             div.innerHTML = `<b class="${colorClass}">${escapeHTML(msg.username)}:</b> ${escapeHTML(msg.text)}`;
             chat.appendChild(div);
             chat.scrollTop = chat.scrollHeight;
+
+            // Pulse animation for new messages (not history)
+            if (!isHistory) {
+                const header = document.getElementById('chatHeader');
+                header.classList.add('chat-pulse');
+                setTimeout(() => header.classList.remove('chat-pulse'), 1000);
+            }
         }
 
         /**
