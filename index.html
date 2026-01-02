@@ -378,18 +378,6 @@
                         </div>
                     </div>
 
-                    <!-- Chat -->
-                    <div class="card bg-base-200 shadow-sm flex-1">
-                        <div class="card-body p-2">
-                            <h3 class="text-sm font-bold">💬 Chat</h3>
-                            <div id="chatMessages" class="h-24 overflow-y-auto text-xs space-y-1 bg-base-300 rounded p-2 mt-1"></div>
-                            <div class="flex gap-1 mt-1">
-                                <input id="chatInput" type="text" placeholder="Say something..."
-                                       class="input input-xs input-bordered flex-1" maxlength="200">
-                                <button id="chatSendBtn" class="btn btn-xs btn-primary">Send</button>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -554,6 +542,23 @@
                 <p>
                     <strong>Features:</strong> Real-time updates, live viewers, game stats, move replay, GIF export, 24h sparklines.
                 </p>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- Start Game with Model Modal -->
+    <dialog id="startWithModelModal" class="modal">
+        <div class="modal-box max-w-md relative">
+            <h3 class="font-bold text-lg mb-3">🎯 Start New Game</h3>
+            <p class="text-sm mb-4">
+                Start a new game with <strong id="selectedModelName" class="text-primary"></strong> playing as White?
+            </p>
+            <p class="text-xs text-gray-500 mb-4">
+                A random opponent will be selected to play as Black.
+            </p>
+            <div class="modal-action">
+                <button class="btn btn-ghost" onclick="document.getElementById('startWithModelModal').close()">Cancel</button>
+                <button id="confirmStartWithModel" class="btn btn-primary">Start</button>
             </div>
         </div>
     </dialog>
@@ -793,6 +798,33 @@
             document.getElementById('chatSendBtn').addEventListener('click', sendChat);
             document.getElementById('chatInput').addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') sendChat();
+            });
+
+            // Chat collapse/expand toggle
+            let chatCollapsed = false;
+            document.getElementById('chatHeader').addEventListener('click', () => {
+                chatCollapsed = !chatCollapsed;
+                const chatBody = document.getElementById('chatBody');
+                const toggleIcon = document.getElementById('chatToggleIcon');
+                if (chatCollapsed) {
+                    chatBody.style.display = 'none';
+                    toggleIcon.textContent = '▲';
+                } else {
+                    chatBody.style.display = 'block';
+                    toggleIcon.textContent = '▼';
+                }
+            });
+
+            // Start game with model from leaderboard
+            document.getElementById('confirmStartWithModel').addEventListener('click', () => {
+                document.getElementById('startWithModelModal').close();
+                if (pendingModelForNewGame) {
+                    // Clear any auto-start timer
+                    clearAutoNewGameTimer();
+                    // Reset and start new game with selected model as White
+                    resetGame(pendingModelForNewGame);
+                    pendingModelForNewGame = null;
+                }
             });
 
             // Set up min games filter
@@ -1247,7 +1279,7 @@
 
                 row.innerHTML = `
                     <td>${index + 1}</td>
-                    <td>${displayName}</td>
+                    <td><a href="#" class="link link-hover text-primary leaderboard-model" data-model="${escapeHTML(entry.model)}">${displayName}</a></td>
                     <td class="font-bold">${entry.elo}</td>
                     <td>${entry.games}</td>
                     <td>${wld}</td>
@@ -1256,7 +1288,28 @@
                 `;
 
                 tbody.appendChild(row);
+
+                // Add click handler for model link
+                const modelLink = row.querySelector('.leaderboard-model');
+                modelLink.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    showStartWithModelModal(entry.model, displayName);
+                });
             });
+        }
+
+        // Store selected model for the "Start with model" modal
+        let pendingModelForNewGame = null;
+
+        /**
+         * Show modal to confirm starting a new game with selected model
+         * @param {string} modelId - Full model ID (e.g., "google/gemini-3-flash-preview")
+         * @param {string} displayName - Formatted display name
+         */
+        function showStartWithModelModal(modelId, displayName) {
+            pendingModelForNewGame = modelId;
+            document.getElementById('selectedModelName').textContent = displayName;
+            document.getElementById('startWithModelModal').showModal();
         }
 
         // Start a new game
@@ -2573,7 +2626,8 @@
         }
 
         // Reset the game
-        function resetGame() {
+        // preselectedModel: optional model ID to use as white player
+        function resetGame(preselectedModel = null) {
             // Clear auto-start timer if running
             clearAutoNewGameTimer();
 
@@ -2639,7 +2693,7 @@
 
             // Start a new game (with a slight delay to ensure UI updates first)
             setTimeout(() => {
-                startGame(true);  // Force create a new game
+                startGame(true, preselectedModel);  // Force create a new game
             }, 100);
         }
 
@@ -3862,6 +3916,26 @@
             }
         }
     </script>
+
+    <!-- Fixed Chat at Bottom -->
+    <div id="chatContainer" class="fixed bottom-0 right-4 w-80 z-50 transition-all duration-300">
+        <div class="bg-base-100 shadow-lg rounded-t-lg border border-base-300">
+            <!-- Chat Header (clickable to toggle) -->
+            <div id="chatHeader" class="flex justify-between items-center p-2 cursor-pointer bg-base-200 rounded-t-lg hover:bg-base-300">
+                <span class="text-sm font-bold">💬 Chat</span>
+                <span id="chatToggleIcon" class="text-xs">▼</span>
+            </div>
+            <!-- Chat Body (collapsible) -->
+            <div id="chatBody" class="p-2">
+                <div id="chatMessages" class="h-40 overflow-y-auto text-xs space-y-1 bg-base-200 rounded p-2"></div>
+                <div class="flex gap-1 mt-2">
+                    <input id="chatInput" type="text" placeholder="Say something..."
+                           class="input input-xs input-bordered flex-1" maxlength="200">
+                    <button id="chatSendBtn" class="btn btn-xs btn-primary">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 
 </html>
