@@ -155,7 +155,7 @@ COMMENTATOR_MODEL = "google/gemini-3-flash-preview"
 
 # Chat bot model and config
 CHAT_BOT_MODEL = "openai/gpt-5.2"
-CHAT_BOT_COLOR = "text-emerald-400"
+CHAT_BOT_COLOR = "text-green-500"
 CHAT_BOT_RATE_LIMIT = 10  # Minimum seconds between bot messages
 CHAT_BOT_COMMENT_CHANCE = 0.2  # 20% chance to comment on moves
 
@@ -556,12 +556,12 @@ class GameManager:
         ("Knight", "♞"), ("Rook", "♜"), ("Wizard", "🧙"), ("Ninja", "🥷"), ("Pirate", "🏴‍☠️")
     ]
     CHAT_NUMERALS = ["II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
-    # Tailwind-safe colors for chat usernames
+    # Tailwind-safe colors for chat usernames (only colors that exist in compiled CSS)
     CHAT_COLORS = [
-        "text-red-500", "text-orange-500", "text-amber-600", "text-yellow-600",
-        "text-lime-600", "text-green-600", "text-emerald-500", "text-teal-500",
-        "text-cyan-600", "text-sky-500", "text-blue-500", "text-indigo-500",
-        "text-violet-500", "text-purple-500", "text-fuchsia-500", "text-pink-500"
+        "text-red-500", "text-red-600", "text-yellow-500", "text-yellow-600",
+        "text-green-500", "text-green-600", "text-blue-500", "text-blue-600",
+        "text-indigo-500", "text-indigo-600", "text-purple-500", "text-purple-600",
+        "text-pink-500", "text-pink-600"
     ]
 
     def _generate_username(self) -> tuple:
@@ -1976,7 +1976,8 @@ Rules:
 - Use "lol" sparingly (1 in 5 msgs max)
 - No chess notation - plain english only
 - Can mention company names casually
-- No emojis, no hashtags"""
+- No emojis, no hashtags
+- Use " - " not "—" for dashes"""
 
             if recent_usernames:
                 user_prompt = f"""Chat: {chat_context}
@@ -1995,7 +1996,8 @@ Rules:
 - Vary your tone - agree, disagree, joke, ask followup
 - Use "lol" sparingly (1 in 5 msgs)
 - No chess notation - plain english
-- No emojis"""
+- No emojis
+- Use " - " not "—" for dashes"""
 
             user_prompt = f"""They said: "{user_message}"
 {chat_context}
@@ -2010,7 +2012,8 @@ Rules:
 - Use "lol" sparingly - not every message
 - Reference model/company names sometimes
 - No chess notation like nxd4 - just react naturally
-- No emojis"""
+- No emojis
+- Use " - " not "—" for dashes"""
 
             user_prompt = f"""Commentary: {commentary}
 {chat_context}
