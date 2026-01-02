@@ -81,6 +81,10 @@ python3 -c "import database; database.init_db()"
 - Winner retention (winner stays for next game, swaps sides)
 - Async commentary via vision-capable model
 - Rate limiting with exponential backoff
+- Model blacklist (expensive models like o3, gpt-5.2-pro excluded from random selection)
+- Cost tracking per game for each player
+- Dual AI chat bots with distinct personalities (hype bot & skeptic)
+- Viewer predictions on game outcomes
 
 **Move Validation Pipeline (server.py ~1150-1240):**
 1. Hallucination detection (fast-fail if moving from empty square)
@@ -103,21 +107,28 @@ python3 -c "import database; database.init_db()"
 - id, model1, model2, winner (0/1/NULL), result, reason
 - moves (comma-separated UCI), move_count, timestamp
 - elo_change_model1, elo_change_model2
+- cost_white, cost_black (API costs per player)
 
 **model_stats table:**
 - model (PK), elo (default 1500), games, wins, losses, draws
 - streak (e.g., 'WWW', 'LLD'), last_updated
+
+**predictions table:**
+- id, game_id, username, predicted_winner (0=white, 1=black)
+- timestamp, correct (NULL until game ends)
 
 ## API Endpoints
 
 - `POST /games` - Create new game (body: model1?, model2?, use_previous_result?)
 - `GET /active_game` - Get current autonomous game
 - `GET /games/{game_id}` - Get game state
-- `GET /stats` - Platform statistics (period=daily|weekly)
+- `GET /stats` - Platform statistics (period=daily|weekly, includes avg_cost_per_game, total_cost)
 - `GET /stats/hourly` - 24-hour hourly data for sparklines
 - `GET /leaderboard` - Model rankings (min_games=N)
 - `GET /models` - Available AI models
 - `POST /refresh-models` - Refresh model list from OpenRouter
+- `POST /predict` - Submit viewer prediction (via WebSocket)
+- `GET /predictions/{game_id}` - Get prediction counts for a game
 
 ## WebSocket Protocol
 
@@ -145,6 +156,17 @@ Message types: `game_state`, `move_made`, `commentary_update`, `status_update`, 
 **Reasoning Model Timeouts:**
 - Extended timeout (180s) for models containing: o1, o3, r1, qwq, thinking, reasoning, step-1/2/3
 - Regular timeout: 45s
+
+**Model Blacklist:**
+- Expensive models excluded from random selection: o3, o3-pro, gpt-5.2-pro, deep-research models
+- Defined in `MODEL_BLACKLIST` set in server.py
+
+**Dual Chat Bots:**
+- Two AI bots with distinct personalities generated on server start
+- Hype Bot: enthusiastic, uses caps for excitement, roots for underdogs
+- Skeptic Bot: dry humor, questions everything, lowkey pessimistic
+- Event-based probabilities: 70% on brilliant moves, 80% on blunders, 90% on game end
+- Each bot has unique name (adjective + animal + emoji) and color
 
 ## Configuration
 

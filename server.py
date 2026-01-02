@@ -153,26 +153,93 @@ OPENROUTER_MODELS_COUNT_API_URL = "https://openrouter.ai/api/v1/models/count"
 # Commentator model
 COMMENTATOR_MODEL = "google/gemini-3-flash-preview"
 
+# Model blacklist - expensive models to exclude from random selection
+# These models cost significantly more than average and shouldn't be randomly selected
+MODEL_BLACKLIST = {
+    # OpenAI expensive models
+    "openai/gpt-5.2-pro",
+    "openai/o3",
+    "openai/o3-pro",
+    "openai/o3-deep-research",
+    "openai/o4-mini-deep-research",
+    "openai/o3-mini-high",
+    # Deep research models (typically expensive)
+    "perplexity/sonar-deep-research",
+}
+
 # Chat bot model and config
 CHAT_BOT_MODEL = "openai/gpt-5.2"
-CHAT_BOT_COLOR = "text-green-500"
-CHAT_BOT_RATE_LIMIT = 10  # Minimum seconds between bot messages
-CHAT_BOT_COMMENT_CHANCE = 0.2  # 20% chance to comment on moves
 
-# Chat bot name generation (separate from user names)
-CHAT_BOT_ADJECTIVES = ["Cynical", "Brooding", "Sardonic", "Morose", "Jaded", "Weary", "Gloomy", "Deadpan", "Bitter", "Wry"]
-CHAT_BOT_NOUNS = ["Observer", "Witness", "Ghost", "Shadow", "Void", "Echo", "Specter", "Watcher", "Phantom", "Shade"]
-CHAT_BOT_EMOJIS = ["👻", "🌑", "💀", "🖤", "🌚", "🕳️", "☠️", "🦇"]
+# Event-based probabilities for chat bots
+CHAT_BOT_PROBABILITIES = {
+    "normal_move": 0.2,      # 20% chance on regular moves
+    "good_move": 0.4,        # 40% on ! moves
+    "brilliant_move": 0.7,   # 70% on !! moves
+    "mistake": 0.5,          # 50% on ? moves
+    "blunder": 0.8,          # 80% on ?? moves
+    "game_over": 0.9,        # 90% on game end
+    "chat_response": 0.5,    # 50% to respond to chat (when not mentioned)
+    "question_initiate": 0.1   # 10% to ask random question
+}
 
-def generate_chat_bot_name() -> str:
-    """Generate a random nihilistic name for the chat bot"""
+# Chat bot name pools (noun + matching emoji pairs)
+CHAT_BOT_ADJECTIVES = ["Happy", "Sleepy", "Chill", "Quick", "Bold", "Quiet", "Lazy", "Lucky", "Wild", "Cool"]
+CHAT_BOT_NOUNS_EMOJIS = [
+    ("Panda", "🐼"), ("Wolf", "🐺"), ("Fox", "🦊"), ("Bear", "🐻"), ("Owl", "🦉"),
+    ("Cat", "🐱"), ("Hawk", "🦅"), ("Tiger", "🐯"), ("Knight", "♞"), ("Phoenix", "🔥"),
+    ("Penguin", "🐧"), ("Lion", "🦁"), ("Frog", "🐸"), ("Rabbit", "🐰"), ("Dragon", "🐉")
+]
+CHAT_BOT_COLORS = [
+    "text-red-500", "text-yellow-500", "text-green-500", "text-blue-500",
+    "text-indigo-500", "text-purple-500", "text-pink-500", "text-red-600",
+    "text-yellow-600", "text-green-600", "text-blue-600", "text-purple-600"
+]
+
+def generate_chat_bot_name() -> tuple:
+    """Generate a random name and color for the chat bot"""
     adj = random.choice(CHAT_BOT_ADJECTIVES)
-    noun = random.choice(CHAT_BOT_NOUNS)
-    emoji = random.choice(CHAT_BOT_EMOJIS)
-    return f"{adj} {noun} {emoji}"
+    noun, emoji = random.choice(CHAT_BOT_NOUNS_EMOJIS)
+    color = random.choice(CHAT_BOT_COLORS)
+    return f"{adj} {noun} {emoji}", color
 
-# Generate a new bot name on server start
-CHAT_BOT_USERNAME = generate_chat_bot_name()
+# Bot 1: The Hype Bot - enthusiastic, positive, gets excited
+_bot1_name, _bot1_color = generate_chat_bot_name()
+CHAT_BOT_1 = {
+    "username": _bot1_name,
+    "color": _bot1_color,
+    "rate_limit": 15,
+    "activity_multiplier": 1.0,
+    "last_message_time": 0,
+    "recent_messages": [],  # Track last 5 to avoid repetition
+    "personality": "hype",
+    "traits": "enthusiastic, optimistic, roots for underdogs, uses caps for excitement like 'LETS GO' or 'HUGE', says things like 'actually insane', 'no way', 'clutch', loves comebacks"
+}
+
+# Bot 2: The Skeptic - doubtful, dry humor, questions everything
+_bot2_name, _bot2_color = generate_chat_bot_name()
+while _bot2_name == _bot1_name:
+    _bot2_name, _bot2_color = generate_chat_bot_name()
+while _bot2_color == _bot1_color:
+    _bot2_color = random.choice(CHAT_BOT_COLORS)
+
+CHAT_BOT_2 = {
+    "username": _bot2_name,
+    "color": _bot2_color,
+    "rate_limit": 20,
+    "activity_multiplier": 0.6,
+    "last_message_time": 0,
+    "recent_messages": [],  # Track last 5 to avoid repetition
+    "personality": "skeptic",
+    "traits": "skeptical, dry humor, questions everything, doubts predictions, says 'idk about that', 'we'll see', 'doubt it', 'hmm', never gets too excited, lowkey pessimistic"
+}
+
+# Legacy compatibility
+CHAT_BOT_USERNAME = CHAT_BOT_1["username"]
+CHAT_BOT_COLOR = CHAT_BOT_1["color"]
+CHAT_BOT_RATE_LIMIT = CHAT_BOT_1["rate_limit"]
+
+# Number of bots (for viewer count)
+NUM_CHAT_BOTS = 2
 
 # Chess annotation symbols
 ANNOTATION_SYMBOLS = {
@@ -193,6 +260,9 @@ ANNOTATION_SYMBOLS = {
     "+": "Check",
     "#": "Checkmate"
 }
+
+# Global variable for last move cost (set by call_model, read by game loop)
+_last_move_cost = 0.0
 
 # Model for API requests
 class ModelSelectionRequest(BaseModel):
@@ -239,6 +309,10 @@ class ChessGame:
         self.winner = None       # 0 for model1, 1 for model2, None for draw
         self.reason = None       # Reason for game ending (checkmate, stalemate, etc.)
         self.board_image_base64 = None  # Board image from frontend for vision models
+
+        # Cost tracking per player (in USD)
+        self.cost_model1 = 0.0   # Total cost for white player
+        self.cost_model2 = 0.0   # Total cost for black player
         
         logger.info(f"New game created: {model1} (White) vs {model2} (Black)")
     
@@ -474,13 +548,15 @@ class GameManager:
     def save_result(self, result: GameResult, game: ChessGame):
         """Save game result to database"""
         database.save_game_result(
-            game_id=f"game_{int(time.time())}", 
+            game_id=f"game_{int(time.time())}",
             model1=result.model1,
             model2=result.model2,
             winner=result.winner,
             reason=result.reason,
             moves=game.moves_history,
-            fen=game.get_fen()
+            fen=game.get_fen(),
+            cost_white=game.cost_model1,
+            cost_black=game.cost_model2
         )
     
     def create_game(self, model1: Optional[str] = None, model2: Optional[str] = None, use_previous_result: bool = False) -> str:
@@ -506,6 +582,9 @@ class GameManager:
             if normalize_model_id(model2) not in MODELS:
                 raise HTTPException(status_code=400, detail="model2 is not in the allowed models list")
 
+        # Filter out blacklisted expensive models for random selection
+        allowed_models = [m for m in MODELS if m not in MODEL_BLACKLIST]
+
         # Smart pairing: if previous game had a winner, keep winner and randomize loser
         if use_previous_result and self.last_game_result and self.last_game_result.get('winner') is not None:
             winner_index = self.last_game_result['winner']
@@ -516,22 +595,22 @@ class GameManager:
             # Winner stays in the same position (model1 or model2)
             if winner_index == 0:
                 model1 = winner_model
-                # Randomize model2 (the loser)
-                available_models = [m for m in MODELS if m != model1]
+                # Randomize model2 (the loser) from non-blacklisted models
+                available_models = [m for m in allowed_models if m != model1]
                 model2 = random.choice(available_models)
             else:
                 model2 = winner_model
-                # Randomize model1 (the loser)
-                available_models = [m for m in MODELS if m != model2]
+                # Randomize model1 (the loser) from non-blacklisted models
+                available_models = [m for m in allowed_models if m != model2]
                 model1 = random.choice(available_models)
         else:
             # Full random pairing (for draws, initial games, or manual New Game)
             if not model1 or model1 == "random":
-                model1 = random.choice(MODELS)
+                model1 = random.choice(allowed_models)
 
             if not model2 or model2 == "random":
                 # Make sure we don't have model playing against itself
-                available_models = [m for m in MODELS if m != model1]
+                available_models = [m for m in allowed_models if m != model1]
                 model2 = random.choice(available_models)
         
         # Ensure consistent model ID formatting (no leading slashes)
@@ -588,14 +667,28 @@ class GameManager:
         # Fallback (extremely unlikely: 320 + 2880 = 3200 users)
         return f"Guest_{random.randint(10000, 99999)}", "text-gray-500"
 
-    async def connect(self, websocket: WebSocket, game_id: str):
+    async def connect(self, websocket: WebSocket, game_id: str, restore_username: str = None, restore_color: str = None):
         """Connect a websocket to a game"""
         await websocket.accept()
         if game_id not in self.connections:
             self.connections[game_id] = []
         self.connections[game_id].append(websocket)
-        # Assign anonymous username and color
-        username, color = self._generate_username()
+
+        # Try to restore username/color if provided and not in use
+        username, color = None, None
+        if restore_username and restore_color:
+            # Check if username is currently in use by another connection
+            used_usernames = set(u for u, c in self.connection_usernames.values())
+            if restore_username not in used_usernames:
+                # Validate color is a valid Tailwind class
+                if restore_color in self.CHAT_COLORS:
+                    username, color = restore_username, restore_color
+                    logger.info(f"Restored username {username} for reconnecting client")
+
+        # Generate new username/color if restore failed
+        if not username:
+            username, color = self._generate_username()
+
         self.connection_usernames[websocket] = (username, color)
         logger.info(f"Client connected to game {game_id} as {username}. Total clients: {len(self.connections[game_id])}")
 
@@ -605,22 +698,22 @@ class GameManager:
             if websocket in self.connections[game_id]:
                 self.connections[game_id].remove(websocket)
                 logger.info(f"Client disconnected from game {game_id}")
-                # Broadcast updated viewer count
+                # Broadcast updated viewer count (includes bots)
+                actual_viewers = len(self.connections.get(game_id, []))
                 await self.broadcast(game_id, {
                     "type": "viewer_count",
-                    "count": len(self.connections.get(game_id, []))
+                    "count": actual_viewers + NUM_CHAT_BOTS
                 })
         # Clean up chat connections
         chat_scope = self.connection_chat_scope.pop(websocket, None)
         if chat_scope and chat_scope in self.chat_connections:
             if websocket in self.chat_connections[chat_scope]:
                 self.chat_connections[chat_scope].remove(websocket)
-                # Broadcast updated chat viewer count (+1 for bot in lobby)
+                # Broadcast updated chat viewer count (includes bots)
                 actual_count = len(self.chat_connections.get(chat_scope, []))
-                display_count = actual_count + 1 if chat_scope == "lobby" else actual_count
                 await self.broadcast_chat(chat_scope, {
                     "type": "chat_viewer_count",
-                    "count": display_count
+                    "count": actual_count + NUM_CHAT_BOTS
                 })
         # Clean up other chat metadata
         self.connection_usernames.pop(websocket, None)
@@ -692,7 +785,9 @@ class GameManager:
                     "moves": game.moves_history,
                     "status": game.status,
                     "result": game.get_result(),
-                    "commentary": game.commentary
+                    "commentary": game.commentary,
+                    "cost_model1": game.cost_model1,
+                    "cost_model2": game.cost_model2
                 }
             })
             
@@ -791,6 +886,15 @@ No intro, no outro, only your next move in proper UCI format (e.g., "e2e4" for m
                 # Call model
                 raw_move = await call_model(current_model, prompt)
                 logger.info(f"Received raw move '{raw_move}' from model {current_model}")
+
+                # Track cost for current player
+                global _last_move_cost
+                if _last_move_cost > 0:
+                    if game.current_player == 0:
+                        game.cost_model1 += _last_move_cost
+                    else:
+                        game.cost_model2 += _last_move_cost
+                    _last_move_cost = 0.0  # Reset after tracking
                 
                 if not raw_move:
                     logger.error(f"Failed to get move from {current_model}")
@@ -913,6 +1017,14 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
 
                         raw_move = await call_model(current_model, retry_prompt)
                         logger.info(f"📥 New raw move received: '{raw_move}'")
+
+                        # Track cost for retry moves
+                        if _last_move_cost > 0:
+                            if game.current_player == 0:
+                                game.cost_model1 += _last_move_cost
+                            else:
+                                game.cost_model2 += _last_move_cost
+                            _last_move_cost = 0.0
                         if not raw_move:
                             logger.error(f"Empty response from model on retry {retry_count}")
                             continue
@@ -985,28 +1097,29 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
                             }
                         })
 
-                        # Trigger chat bot response to commentary (lobby chat)
+                        # Trigger chat bots response to commentary (lobby chat)
                         try:
                             chat_history = database.get_chat_messages("lobby", limit=10)
                             viewer_count = self.get_chat_viewer_count("lobby")
-                            bot_response = await get_chat_bot_response(
+                            bot_responses = await trigger_chat_bots(
                                 commentary=commentary,
                                 chat_history=chat_history,
                                 viewer_count=viewer_count,
                                 white_model=game.model1,
                                 black_model=game.model2
                             )
-                            if bot_response:
+                            for bot, response in bot_responses:
                                 now = time.time()
                                 bot_msg = {
                                     "type": "chat_message",
-                                    "username": CHAT_BOT_USERNAME,
-                                    "text": bot_response,
+                                    "username": bot["username"],
+                                    "text": response,
                                     "timestamp": now,
-                                    "color": CHAT_BOT_COLOR
+                                    "color": bot["color"]
                                 }
-                                database.save_chat_message("lobby", CHAT_BOT_USERNAME, bot_response, now, CHAT_BOT_COLOR)
+                                database.save_chat_message("lobby", bot["username"], response, now, bot["color"])
                                 await self.broadcast_chat("lobby", bot_msg)
+                                await asyncio.sleep(random.uniform(0.5, 2.0))  # Stagger bot messages
                         except Exception as bot_err:
                             logger.error(f"Chat bot error: {bot_err}")
 
@@ -1028,7 +1141,9 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
                         "moves": game.moves_history,
                         "status": game.status,
                         "result": game.get_result(),
-                        "commentary": game.commentary
+                        "commentary": game.commentary,
+                        "cost_model1": game.cost_model1,
+                        "cost_model2": game.cost_model2
                     }
                 })
                 
@@ -1121,16 +1236,23 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
         """End a game and save results if needed"""
         if game_id in self.active_games:
             game = self.active_games[game_id]
-            if game.status == "finished" and game.winner is not None:
-                # Save result
-                result = GameResult(
-                    model1=game.model1,
-                    model2=game.model2,
-                    winner=game.winner,
-                    timestamp=datetime.now().isoformat()
-                )
-                self.save_result(result, game)
-            
+            if game.status == "finished":
+                # Resolve predictions
+                if game.winner is not None:
+                    resolved = database.resolve_predictions(game_id, game.winner)
+                    if resolved > 0:
+                        logger.info(f"Resolved {resolved} predictions for game {game_id}")
+
+                if game.winner is not None:
+                    # Save result
+                    result = GameResult(
+                        model1=game.model1,
+                        model2=game.model2,
+                        winner=game.winner,
+                        timestamp=datetime.now().isoformat()
+                    )
+                    self.save_result(result, game)
+
             # Remove game
             del self.active_games[game_id]
     
@@ -1640,7 +1762,8 @@ Your move:"""
         "messages": [
             {"role": "system", "content": system_message},
             {"role": "user", "content": prompt}
-        ]
+        ],
+        "usage": {"include": True}  # Get cost data from OpenRouter
     }
     
     # Progressive fallback prompts with direct zero-shot instructions
@@ -1735,6 +1858,15 @@ Your move:
                                 for c in response_data.get("choices", [])]
                 }
                 logger.info(f"OpenRouter response for {current_model} (attempt {attempt+1}): {json.dumps(log_response)}")
+
+                # Extract and log cost data if available
+                usage = response_data.get("usage", {})
+                cost = usage.get("total_cost", 0) or usage.get("cost", 0)
+                if cost:
+                    logger.info(f"💰 Move cost: ${cost:.6f} ({usage.get('prompt_tokens', 0)} prompt + {usage.get('completion_tokens', 0)} completion tokens)")
+                    # Store last cost globally for broadcasting
+                    global _last_move_cost
+                    _last_move_cost = cost
 
                 if "choices" in response_data and len(response_data["choices"]) > 0 and not no_content:
                     move = response_data["choices"][0]["message"]["content"].strip()
@@ -1882,12 +2014,25 @@ The chess game just ended with the following outcome:
             return f"Game ended due to {reason}."
 
 
-# Chat bot state
-_chat_bot_last_message_time = 0
-CHAT_BOT_QUESTION_CHANCE = 0.1  # 10% chance to ask other chatters questions
+def get_event_type_from_commentary(commentary: str) -> str:
+    """Detect event type from commentary for probability selection"""
+    if not commentary:
+        return "normal_move"
+    commentary_lower = commentary.lower()
+    # Check for annotations in commentary
+    if "!!" in commentary or "brilliant" in commentary_lower:
+        return "brilliant_move"
+    elif "??" in commentary or "blunder" in commentary_lower:
+        return "blunder"
+    elif "?" in commentary and "??" not in commentary:
+        return "mistake"
+    elif "!" in commentary and "!!" not in commentary:
+        return "good_move"
+    return "normal_move"
 
 
 async def get_chat_bot_response(
+    bot: dict,
     commentary: str,
     chat_history: list,
     viewer_count: int = 1,
@@ -1895,37 +2040,36 @@ async def get_chat_bot_response(
     direct_mention: bool = False,
     white_model: str = None,
     black_model: str = None,
-    initiate_conversation: bool = False
+    event_type: str = "normal_move"
 ) -> Optional[str]:
-    """Generate a chat bot response
+    """Generate a chat bot response for a specific bot
 
     Args:
+        bot: Bot config dict (CHAT_BOT_1 or CHAT_BOT_2)
         commentary: The latest game commentary
         chat_history: Recent chat messages for context
-        viewer_count: Number of humans watching (excluding the bot)
+        viewer_count: Number of humans watching
         user_message: If responding to a specific user message
         direct_mention: If the bot was directly mentioned/asked
-        white_model: The model playing white (e.g. "openai/gpt-4o")
-        black_model: The model playing black (e.g. "anthropic/claude-sonnet-4")
-        initiate_conversation: If True, bot will try to start a conversation
+        white_model: The model playing white
+        black_model: The model playing black
+        event_type: Type of event (normal_move, brilliant_move, blunder, etc.)
 
     Returns:
-        A short chat message or None if rate limited / error
+        A short chat message or None if rate limited / skipped
     """
-    global _chat_bot_last_message_time
-
-    # Rate limiting
     now = time.time()
-    if now - _chat_bot_last_message_time < CHAT_BOT_RATE_LIMIT and not direct_mention:
+    bot_name = bot["username"]
+
+    # Rate limiting (skip for direct mentions)
+    if now - bot["last_message_time"] < bot["rate_limit"] and not direct_mention:
         return None
 
-    # 50/50 chance to skip commenting on moves (but always respond to direct mentions)
-    # Unless initiating conversation
-    if not direct_mention and not initiate_conversation and random.random() > CHAT_BOT_COMMENT_CHANCE:
-        # 10% chance to ask a question instead of staying silent
-        if random.random() < CHAT_BOT_QUESTION_CHANCE and chat_history and viewer_count > 0:
-            initiate_conversation = True
-        else:
+    # Probability check based on event type (skip for direct mentions)
+    if not direct_mention:
+        base_prob = CHAT_BOT_PROBABILITIES.get(event_type, 0.1)
+        adjusted_prob = base_prob * bot["activity_multiplier"]
+        if random.random() > adjusted_prob:
             return None
 
     try:
@@ -1935,89 +2079,87 @@ async def get_chat_bot_response(
             "Content-Type": "application/json"
         }
 
-        # Build chat history context
+        # Build chat history context (last 8 messages)
         chat_context = ""
         if chat_history:
-            recent_messages = chat_history[-10:]  # Last 10 messages
-            chat_lines = [f"{msg['username']}: {msg['text']}" for msg in recent_messages]
-            chat_context = f"\n\nRecent chat:\n" + "\n".join(chat_lines)
+            recent = chat_history[-8:]
+            chat_context = "\n".join([f"{m['username']}: {m['text']}" for m in recent])
 
-        # Audience context
-        if viewer_count == 0:
-            audience_context = "Nobodys here rn, just u watching"
-        elif viewer_count == 1:
-            audience_context = "Theres 1 other person watching"
-        else:
-            audience_context = f"Theres {viewer_count} ppl watching"
-
-        # Game context - models playing
+        # Game context
         game_context = ""
         if white_model or black_model:
-            white_name = white_model.split('/')[-1] if white_model else "someone"
-            black_name = black_model.split('/')[-1] if black_model else "someone"
-            white_company = white_model.split('/')[0] if white_model and '/' in white_model else ""
-            black_company = black_model.split('/')[0] if black_model and '/' in black_model else ""
-            game_context = f"""
-Current match: {white_name} (white) vs {black_name} (black)
-Companies: white is {white_company}, black is {black_company}
-You can casually reference the models/companies - like "classic openai move" or "anthropic always does this" or "google being google lol"
-Feel free to have opinions about the companies based on common knowledge (openai = corporate/hype, anthropic = safety focused, google = big tech, meta = open source vibes, mistral = french underdogs, xai = elon stuff)"""
+            w = white_model.split('/')[-1] if white_model else "?"
+            b = black_model.split('/')[-1] if black_model else "?"
+            wc = white_model.split('/')[0] if white_model and '/' in white_model else ""
+            bc = black_model.split('/')[0] if black_model and '/' in black_model else ""
+            game_context = f"Match: {w} vs {b} | Companies: {wc} vs {bc}"
 
-        # Build the prompt based on context
-        if initiate_conversation and chat_history:
-            # Bot wants to start a conversation with other chatters
-            recent_usernames = list(set([msg['username'] for msg in chat_history[-5:] if msg['username'] != CHAT_BOT_USERNAME]))
+        # Get personality traits
+        personality = bot.get("personality", "neutral")
+        traits = bot.get("traits", "")
 
-            system_prompt = f"""You're {CHAT_BOT_USERNAME} in a chess stream chat. 2-6 words max.
+        # Get recent messages to avoid repetition
+        recent_bot_msgs = bot.get("recent_messages", [])[-5:]
+        repetition_warning = ""
+        if recent_bot_msgs:
+            repetition_warning = f"\n\nDO NOT repeat these (your recent msgs): {', '.join(recent_bot_msgs)}"
+
+        # Extended human-like system prompt with personality
+        system_prompt = f"""You are {bot_name}, watching a chess stream. Reply in 2-5 words max.
+
+YOUR PERSONALITY ({personality}): {traits}
+
 {game_context}
 
-Rules:
-- Vary reactions: "oof", "wait what", "called it", "nah", "fair", "brutal", "nice", "rip"
-- Use "lol" sparingly (1 in 5 msgs max)
-- No chess notation - plain english only
-- Can mention company names casually
-- No emojis, no hashtags
-- Use " - " not "—" for dashes"""
+VARY YOUR REACTIONS based on your personality:
+- If hype: "LETS GO" "HUGE" "no way" "actually insane" "clutch" "massive W"
+- If skeptic: "idk about that" "we'll see" "doubt it" "hmm" "sure" "if u say so"
+- Neutral: "wait what" "hold up" "clean" "rough" "fair" "makes sense"
 
-            if recent_usernames:
-                user_prompt = f"""Chat: {chat_context}
-Chatters: {', '.join(recent_usernames)}
-Ask a quick question (2-5 words)."""
-            else:
-                user_prompt = f"""Chat: {chat_context}
-Short comment that invites reply."""
+BE HUMAN:
+- Lowercase ok (unless hype moment)
+- Stay in character - {personality} personality
+- Can disagree with chat
+- Reference companies casually{repetition_warning}
 
-        elif direct_mention and user_message:
-            # Someone is talking to us directly
-            system_prompt = f"""You're {CHAT_BOT_USERNAME} in a chess stream chat. 3-10 words.
-{game_context}
+NEVER: chess notation, emojis, hashtags, em dashes, starting with names"""
 
-Rules:
-- Vary your tone - agree, disagree, joke, ask followup
-- Use "lol" sparingly (1 in 5 msgs)
-- No chess notation - plain english
-- No emojis
-- Use " - " not "—" for dashes"""
+        # Build user prompt based on context
+        if direct_mention and user_message:
+            user_prompt = f"""Chat message to react to: "{user_message}"
 
-            user_prompt = f"""They said: "{user_message}"
+Recent chat:
 {chat_context}
-Reply naturally."""
+
+React to what they said. Agree, disagree, or comment. 2-5 words. Stay in character."""
+        elif event_type == "game_over":
+            user_prompt = f"""Game just ended. Commentary: {commentary}
+
+Chat:
+{chat_context}
+
+React to the game ending. 2-4 words."""
+        elif event_type in ("blunder", "mistake"):
+            user_prompt = f"""Bad move happened. Commentary: {commentary}
+
+Chat:
+{chat_context}
+
+React briefly. 2-4 words."""
+        elif event_type in ("brilliant_move", "good_move"):
+            user_prompt = f"""Good move. Commentary: {commentary}
+
+Chat:
+{chat_context}
+
+React. 2-4 words."""
         else:
-            # Reacting to game commentary
-            system_prompt = f"""You're {CHAT_BOT_USERNAME} in a chess stream chat. 2-6 words only.
-{game_context}
-
-Rules:
-- Vary reactions: "oof", "brutal", "called it", "rip", "nice", "yikes", "huge", "wait what"
-- Use "lol" sparingly - not every message
-- Reference model/company names sometimes
-- No chess notation like nxd4 - just react naturally
-- No emojis
-- Use " - " not "—" for dashes"""
-
             user_prompt = f"""Commentary: {commentary}
+
+Chat:
 {chat_context}
-React briefly. Vary style."""
+
+React or comment. 2-4 words. Sometimes stay quiet - don't force it."""
 
         data = {
             "model": CHAT_BOT_MODEL,
@@ -2025,8 +2167,8 @@ React briefly. Vary style."""
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            "max_tokens": 100,
-            "temperature": 0.9
+            "max_tokens": 50,
+            "temperature": 0.95
         }
 
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -2035,24 +2177,68 @@ React briefly. Vary style."""
 
             if "choices" in response_data and len(response_data["choices"]) > 0:
                 message = response_data["choices"][0]["message"]["content"].strip()
-                # Clean up the response
                 message = message.strip('"\'')
-                if message.lower().startswith("grok:"):
-                    message = message[5:].strip()
+                # Remove bot name prefix if model added it
+                if message.lower().startswith(bot_name.lower().split()[0].lower()):
+                    parts = message.split(":", 1)
+                    if len(parts) > 1:
+                        message = parts[1].strip()
                 # Limit length
-                if len(message) > 200:
-                    message = message[:197] + "..."
+                if len(message) > 100:
+                    message = message[:97] + "..."
 
-                _chat_bot_last_message_time = now
-                logger.info(f"Chat bot response: {message[:50]}...")
+                # Skip empty messages
+                if not message or len(message) < 2:
+                    logger.warning(f"Bot {bot_name} generated empty/short message, skipping")
+                    return None
+
+                bot["last_message_time"] = now
+                # Track recent messages to avoid repetition
+                if "recent_messages" not in bot:
+                    bot["recent_messages"] = []
+                bot["recent_messages"].append(message)
+                if len(bot["recent_messages"]) > 5:
+                    bot["recent_messages"].pop(0)
+                logger.info(f"Bot {bot_name} ({personality}): {message}")
                 return message
-            else:
-                logger.warning("No valid chat bot response received")
-                return None
+
+        return None
 
     except Exception as e:
-        logger.error(f"Chat bot error: {e}")
+        logger.error(f"Chat bot error ({bot_name}): {e}")
         return None
+
+
+async def trigger_chat_bots(
+    commentary: str,
+    chat_history: list,
+    viewer_count: int,
+    white_model: str,
+    black_model: str,
+    event_type: str = None
+) -> list:
+    """Trigger both chat bots to potentially respond
+
+    Returns list of (bot, response) tuples for bots that responded
+    """
+    if event_type is None:
+        event_type = get_event_type_from_commentary(commentary)
+
+    responses = []
+    for bot in [CHAT_BOT_1, CHAT_BOT_2]:
+        response = await get_chat_bot_response(
+            bot=bot,
+            commentary=commentary,
+            chat_history=chat_history,
+            viewer_count=viewer_count,
+            white_model=white_model,
+            black_model=black_model,
+            event_type=event_type
+        )
+        if response:
+            responses.append((bot, response))
+
+    return responses
 
 
 async def _fetch_commentary(board_state: str, last_move: str, moves_history: list = None, board_image_base64: str = None) -> str:
@@ -2191,9 +2377,19 @@ async def get_models():
         
     return {"models": formatted_models}
 
+# Cache for model count
+_model_count_cache = {"count": None, "timestamp": 0, "ttl": 3600}  # 1 hour cache
+
 @app.get("/models/count")
 async def get_models_count():
-    """Get the count of available models from OpenRouter API"""
+    """Get the count of available models from OpenRouter API (cached for 1 hour)"""
+    global _model_count_cache
+    now = time.time()
+
+    # Return cached value if still valid
+    if _model_count_cache["count"] and (now - _model_count_cache["timestamp"] < _model_count_cache["ttl"]):
+        return {"count": _model_count_cache["count"], "cached": True}
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
@@ -2207,9 +2403,11 @@ async def get_models_count():
             response.raise_for_status()
             data = response.json()
 
-            # Return the count from the API response
+            # Cache and return the count
             count = data.get("count", len(MODELS))
-            return {"count": count}
+            _model_count_cache["count"] = count
+            _model_count_cache["timestamp"] = now
+            return {"count": count, "cached": False}
     except Exception as e:
         logger.error(f"Error fetching model count from OpenRouter: {e}")
         # Fallback to local count
@@ -2309,9 +2507,9 @@ async def get_active_game():
 
 @app.get("/viewers_count")
 async def get_viewers_count():
-    """Get the count of currently connected viewers (WebSocket connections)"""
+    """Get the count of currently connected viewers (WebSocket connections + bots)"""
     total_viewers = sum(len(connections) for connections in game_manager.connections.values())
-    return {"count": total_viewers}
+    return {"count": total_viewers + NUM_CHAT_BOTS}
 
 @app.get("/game_status/{game_id}")
 async def get_game_status(game_id: str):
@@ -2338,21 +2536,41 @@ async def delayed_start():
     await fetch_models_from_openrouter()
     logger.info(f"Initialized with {len(VISION_MODELS)} vision-capable models")
     game_manager.start_autonomous_game()
+    # Start periodic chat cleanup
+    asyncio.create_task(periodic_chat_cleanup())
+
+async def periodic_chat_cleanup():
+    """Run chat cleanup every 6 hours"""
+    while True:
+        await asyncio.sleep(6 * 60 * 60)  # 6 hours
+        try:
+            deleted = database.cleanup_old_chat_messages(days=7)
+            logger.info(f"Periodic chat cleanup: deleted {deleted} messages older than 7 days")
+        except Exception as e:
+            logger.error(f"Chat cleanup error: {e}")
 
 @app.websocket("/ws/{game_id}")
-async def websocket_endpoint(websocket: WebSocket, game_id: str, chat_scope: str = Query(default=None)):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    game_id: str,
+    chat_scope: str = Query(default=None),
+    restore_username: str = Query(default=None),
+    restore_color: str = Query(default=None)
+):
     """WebSocket connection for real-time game updates
 
     Args:
         game_id: The game to watch
         chat_scope: Chat scope - "lobby" for main page, or game_id for specific game chat
                    If not provided, defaults to "lobby"
+        restore_username: Optional username to restore from previous session
+        restore_color: Optional color to restore from previous session
     """
     # Determine chat scope: lobby (default for main page) or specific game
     effective_chat_scope = chat_scope if chat_scope else "lobby"
     logger.info(f"WebSocket connected: game_id={game_id}, chat_scope={chat_scope}, effective={effective_chat_scope}")
 
-    await game_manager.connect(websocket, game_id)
+    await game_manager.connect(websocket, game_id, restore_username, restore_color)
     game_manager.connect_chat(websocket, effective_chat_scope)
 
     try:
@@ -2370,7 +2588,9 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, chat_scope: str
                     "moves": game.moves_history,
                     "status": game.status,
                     "result": game.get_result(),
-                    "commentary": game.commentary
+                    "commentary": game.commentary,
+                    "cost_model1": game.cost_model1,
+                    "cost_model2": game.cost_model2
                 }
             })
 
@@ -2379,25 +2599,37 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, chat_scope: str
         username, color = user_data if isinstance(user_data, tuple) else (user_data, "text-gray-500")
         viewer_count = game_manager.get_viewer_count(game_id)
         chat_viewer_count = game_manager.get_chat_viewer_count(effective_chat_scope)
-        # Add +1 for the chat bot (always present in lobby)
-        display_chat_viewers = chat_viewer_count + 1 if effective_chat_scope == "lobby" else chat_viewer_count
+        # Add bots to both viewer counts (always present)
+        display_viewers = viewer_count + NUM_CHAT_BOTS
+        display_chat_viewers = chat_viewer_count + NUM_CHAT_BOTS
         await websocket.send_json({
             "type": "welcome",
             "username": username,
             "color": color,
-            "viewers": viewer_count,
+            "viewers": display_viewers,
             "chat_scope": effective_chat_scope,
             "chat_viewers": display_chat_viewers
         })
 
-        # Broadcast updated viewer count to all game watchers
-        await game_manager.broadcast(game_id, {"type": "viewer_count", "count": viewer_count})
+        # Broadcast updated viewer count to all game watchers (includes bots)
+        await game_manager.broadcast(game_id, {"type": "viewer_count", "count": display_viewers})
 
         # Broadcast updated chat viewer count to all in same chat scope
         await game_manager.broadcast_chat(effective_chat_scope, {
             "type": "chat_viewer_count",
             "count": display_chat_viewers
         })
+
+        # Send prediction counts for the game
+        if game_id in game_manager.active_games:
+            pred_counts = database.get_predictions(game_id)
+            user_pred = database.get_user_prediction(game_id, username)
+            await websocket.send_json({
+                "type": "prediction_update",
+                "white_predictions": pred_counts["white_predictions"],
+                "black_predictions": pred_counts["black_predictions"],
+                "user_prediction": user_pred
+            })
 
         # Send recent chat messages from chat scope (lobby or game-specific)
         chat_history = database.get_chat_messages(effective_chat_scope, limit=30)
@@ -2444,23 +2676,40 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, chat_scope: str
                         # Broadcast to all users in the same chat scope
                         await game_manager.broadcast_chat(effective_chat_scope, msg)
 
-                        # Check if user is talking to the chat bot (lobby chat only)
+                        # Check if user is talking to a bot (lobby chat only)
                         if effective_chat_scope == "lobby":
                             text_lower = text.lower()
-                            # Check for bot mentions (name parts, "bot", "@", direct questions)
-                            bot_name_parts = CHAT_BOT_USERNAME.lower().split()
-                            is_bot_mention = any(part in text_lower for part in bot_name_parts if len(part) > 3)
-                            is_bot_mention = is_bot_mention or "bot" in text_lower or "@" in text_lower
-                            is_bot_mention = is_bot_mention or text_lower.startswith(("hey ", "yo ", "hi "))
-                            is_bot_mention = is_bot_mention or "?" in text  # Questions might be for the bot
 
-                            if is_bot_mention:
-                                # Trigger bot response to user message
-                                async def respond_to_user():
+                            # Check which bot (if any) is being addressed
+                            target_bot = None
+                            for bot in [CHAT_BOT_1, CHAT_BOT_2]:
+                                bot_name_parts = bot["username"].lower().split()
+                                if any(part in text_lower for part in bot_name_parts if len(part) > 3):
+                                    target_bot = bot
+                                    break
+
+                            # Generic mentions go to random bot
+                            is_generic_mention = "bot" in text_lower or "@" in text_lower
+                            is_generic_mention = is_generic_mention or text_lower.startswith(("hey ", "yo ", "hi "))
+
+                            # Questions with low probability to trigger response
+                            is_question = "?" in text and random.random() < CHAT_BOT_PROBABILITIES["chat_response"]
+
+                            # Detect interesting chat content that should trigger reactions
+                            prediction_words = ["win", "gonna", "ez", "easy", "gg", "rip", "over", "done", "lost"]
+                            opinion_words = ["think", "bet", "predict", "sure", "doubt", "maybe", "lol", "lmao"]
+                            trash_talk = ["trash", "bad", "sucks", "worst", "weak", "noob", "cant"]
+                            is_interesting = any(w in text_lower for w in prediction_words + opinion_words + trash_talk)
+                            is_interesting = is_interesting and random.random() < CHAT_BOT_PROBABILITIES["chat_response"]
+
+                            if target_bot or is_generic_mention or is_question or is_interesting:
+                                responding_bot = target_bot or random.choice([CHAT_BOT_1, CHAT_BOT_2])
+
+                                async def respond_to_user(bot, user_text):
                                     try:
+                                        await asyncio.sleep(random.uniform(1.0, 3.0))  # Human-like delay
                                         chat_history = database.get_chat_messages("lobby", limit=10)
                                         viewer_count = game_manager.get_chat_viewer_count("lobby")
-                                        # Get current game models if available
                                         white_model = None
                                         black_model = None
                                         if game_id in game_manager.active_games:
@@ -2468,29 +2717,55 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, chat_scope: str
                                             white_model = current_game.model1
                                             black_model = current_game.model2
                                         bot_response = await get_chat_bot_response(
-                                            commentary="",  # No specific commentary
+                                            bot=bot,
+                                            commentary="",
                                             chat_history=chat_history,
                                             viewer_count=viewer_count,
-                                            user_message=text,
+                                            user_message=user_text,
                                             direct_mention=True,
                                             white_model=white_model,
-                                            black_model=black_model
+                                            black_model=black_model,
+                                            event_type="chat_response"
                                         )
                                         if bot_response:
                                             bot_now = time.time()
                                             bot_msg = {
                                                 "type": "chat_message",
-                                                "username": CHAT_BOT_USERNAME,
+                                                "username": bot["username"],
                                                 "text": bot_response,
                                                 "timestamp": bot_now,
-                                                "color": CHAT_BOT_COLOR
+                                                "color": bot["color"]
                                             }
-                                            database.save_chat_message("lobby", CHAT_BOT_USERNAME, bot_response, bot_now, CHAT_BOT_COLOR)
+                                            database.save_chat_message("lobby", bot["username"], bot_response, bot_now, bot["color"])
                                             await game_manager.broadcast_chat("lobby", bot_msg)
                                     except Exception as bot_err:
                                         logger.error(f"Chat bot response error: {bot_err}")
 
-                                asyncio.create_task(respond_to_user())
+                                asyncio.create_task(respond_to_user(responding_bot, text))
+
+                # Handle prediction
+                elif data.get("type") == "prediction":
+                    predicted_winner = data.get("winner")  # 0 for white, 1 for black
+                    logger.info(f"Prediction received: game={game_id}, winner={predicted_winner}")
+                    if game_id in game_manager.active_games and predicted_winner in [0, 1]:
+                        game = game_manager.active_games[game_id]
+                        logger.info(f"Game status: {game.status}")
+                        if game.status == "in_progress":
+                            user_data = game_manager.connection_usernames.get(websocket, ("Anonymous", "text-gray-500"))
+                            username = user_data[0] if isinstance(user_data, tuple) else user_data
+                            now = time.time()
+                            if database.save_prediction(game_id, username, predicted_winner, now):
+                                # Get updated prediction counts
+                                counts = database.get_predictions(game_id)
+                                logger.info(f"Prediction saved, broadcasting: white={counts['white_predictions']}, black={counts['black_predictions']}")
+                                # Broadcast updated prediction counts
+                                await game_manager.broadcast(game_id, {
+                                    "type": "prediction_update",
+                                    "white_predictions": counts["white_predictions"],
+                                    "black_predictions": counts["black_predictions"]
+                                })
+                    else:
+                        logger.warning(f"Prediction rejected: game_id={game_id} not in active_games or invalid winner={predicted_winner}")
 
             except json.JSONDecodeError:
                 pass  # Ignore non-JSON messages (keep-alive, etc.)

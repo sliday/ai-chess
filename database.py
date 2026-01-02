@@ -105,6 +105,30 @@ def init_db():
             except:
                 pass  # Column already exists
 
+            # Add cost columns to games table (migration for existing databases)
+            try:
+                cursor.execute('ALTER TABLE games ADD COLUMN cost_white REAL DEFAULT 0')
+            except:
+                pass  # Column already exists
+            try:
+                cursor.execute('ALTER TABLE games ADD COLUMN cost_black REAL DEFAULT 0')
+            except:
+                pass  # Column already exists
+
+            # Predictions table for viewer predictions
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS predictions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_id TEXT NOT NULL,
+                username TEXT NOT NULL,
+                predicted_winner INTEGER NOT NULL,
+                timestamp REAL NOT NULL,
+                correct INTEGER DEFAULT NULL,
+                UNIQUE(game_id, username)
+            )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_predictions_game ON predictions(game_id)')
+
             conn.commit()
             logger.info("Database initialized successfully")
     except Exception as e:
@@ -170,7 +194,7 @@ def update_elo(model: str, new_elo: int):
     except Exception as e:
         logger.error(f"Failed to update Elo for {model}: {e}")
 
-def save_game_result(game_id: str, model1: str, model2: str, winner: Optional[int], reason: str, moves: List[str], fen: str):
+def save_game_result(game_id: str, model1: str, model2: str, winner: Optional[int], reason: str, moves: List[str], fen: str, cost_white: float = 0.0, cost_black: float = 0.0):
     """Save a finished game result and update Elo ratings"""
     try:
         with sqlite3.connect(DB_FILE) as conn:
@@ -179,9 +203,9 @@ def save_game_result(game_id: str, model1: str, model2: str, winner: Optional[in
             moves_str = ",".join(moves)
 
             cursor.execute('''
-            INSERT INTO games (id, model1, model2, winner, reason, timestamp, moves, fen)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (game_id, model1, model2, winner, reason, timestamp, moves_str, fen))
+            INSERT INTO games (id, model1, model2, winner, reason, timestamp, moves, fen, cost_white, cost_black)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (game_id, model1, model2, winner, reason, timestamp, moves_str, fen, cost_white, cost_black))
 
             conn.commit()
             logger.info(f"Game {game_id} saved to database")
@@ -480,6 +504,18 @@ def get_statistics(period: str = "daily") -> Dict[str, Any]:
             result = cursor.fetchone()
             stats["meta_stats"]["active_models"] = result["unique_models"] if result else 0
 
+            # 9. 💰 Cost Per Game (average)
+            cursor.execute(f"""
+                SELECT
+                    AVG(COALESCE(cost_white, 0) + COALESCE(cost_black, 0)) as avg_cost,
+                    SUM(COALESCE(cost_white, 0) + COALESCE(cost_black, 0)) as total_cost
+                FROM games
+                WHERE {time_filter}
+            """)
+            result = cursor.fetchone()
+            stats["meta_stats"]["avg_cost_per_game"] = round(result["avg_cost"], 4) if result and result["avg_cost"] else 0
+            stats["meta_stats"]["total_cost"] = round(result["total_cost"], 4) if result and result["total_cost"] else 0
+
             # Cache the result
             cache_entry["data"] = stats
             cache_entry["timestamp"] = current_time
@@ -586,3 +622,136 @@ def get_chat_messages(game_id: str, limit: int = 50) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Failed to get chat messages: {e}")
         return []
+
+
+def cleanup_old_chat_messages(days: int = 7) -> int:
+    """Delete chat messages older than specified days
+
+    Args:
+        days: Number of days to keep (default 7)
+
+    Returns:
+        Number of deleted messages
+    """
+    import time
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cutoff = time.time() - (days * 24 * 60 * 60)
+            cursor.execute('DELETE FROM chat_messages WHERE timestamp < ?', (cutoff,))
+            deleted = cursor.rowcount
+            conn.commit()
+            logger.info(f"Cleaned up {deleted} chat messages older than {days} days")
+            return deleted
+    except Exception as e:
+        logger.error(f"Failed to cleanup chat messages: {e}")
+        return 0
+
+
+def save_prediction(game_id: str, username: str, predicted_winner: int, timestamp: float) -> bool:
+    """Save a viewer prediction for a game
+
+    Args:
+        game_id: The game ID
+        username: The username making the prediction
+        predicted_winner: 0 for white, 1 for black
+        timestamp: When the prediction was made
+
+    Returns:
+        True if saved successfully, False otherwise
+    """
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR REPLACE INTO predictions (game_id, username, predicted_winner, timestamp)
+                VALUES (?, ?, ?, ?)
+            ''', (game_id, username, predicted_winner, timestamp))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Failed to save prediction: {e}")
+        return False
+
+
+def get_predictions(game_id: str) -> Dict[str, int]:
+    """Get prediction counts for a game
+
+    Args:
+        game_id: The game ID
+
+    Returns:
+        Dictionary with white_predictions and black_predictions counts
+    """
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT predicted_winner, COUNT(*) as count
+                FROM predictions
+                WHERE game_id = ?
+                GROUP BY predicted_winner
+            ''', (game_id,))
+            rows = cursor.fetchall()
+            result = {"white_predictions": 0, "black_predictions": 0}
+            for row in rows:
+                if row[0] == 0:
+                    result["white_predictions"] = row[1]
+                elif row[0] == 1:
+                    result["black_predictions"] = row[1]
+            return result
+    except Exception as e:
+        logger.error(f"Failed to get predictions: {e}")
+        return {"white_predictions": 0, "black_predictions": 0}
+
+
+def resolve_predictions(game_id: str, actual_winner: int) -> int:
+    """Resolve predictions for a completed game
+
+    Args:
+        game_id: The game ID
+        actual_winner: 0 for white won, 1 for black won, None for draw
+
+    Returns:
+        Number of predictions resolved
+    """
+    if actual_winner is None:
+        return 0
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE predictions
+                SET correct = CASE WHEN predicted_winner = ? THEN 1 ELSE 0 END
+                WHERE game_id = ?
+            ''', (actual_winner, game_id))
+            resolved = cursor.rowcount
+            conn.commit()
+            return resolved
+    except Exception as e:
+        logger.error(f"Failed to resolve predictions: {e}")
+        return 0
+
+
+def get_user_prediction(game_id: str, username: str) -> Optional[int]:
+    """Get a user's prediction for a game
+
+    Args:
+        game_id: The game ID
+        username: The username
+
+    Returns:
+        0 for white, 1 for black, or None if no prediction
+    """
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT predicted_winner FROM predictions
+                WHERE game_id = ? AND username = ?
+            ''', (game_id, username))
+            row = cursor.fetchone()
+            return row[0] if row else None
+    except Exception as e:
+        logger.error(f"Failed to get user prediction: {e}")
+        return None

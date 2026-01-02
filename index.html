@@ -326,24 +326,36 @@
             <div class="card bg-base-100 shadow-sm">
                 <div class="stats shadow text-sm">
                     <div class="stat player-stat" id="whitePlayer">
-                        <div class="stat-title">
+                        <div class="stat-title flex justify-between items-center">
                             <span class="badge badge-lg player-badge rounded-full">
                                 <span class="player-circle white-circle"></span>
                                 White
                             </span>
+                            <span id="cost1Display" class="text-xs text-gray-400 font-mono"></span>
                         </div>
                         <div id="model1Name" class="font-medium truncate text-sm">-</div>
                     </div>
                     <div class="stat player-stat" id="blackPlayer">
-                        <div class="stat-title">
+                        <div class="stat-title flex justify-between items-center">
                             <span class="badge badge-lg player-badge rounded-full">
                                 <span class="player-circle black-circle"></span>
                                 Black
                             </span>
+                            <span id="cost2Display" class="text-xs text-gray-400 font-mono"></span>
                         </div>
                         <div id="model2Name" class="font-medium truncate text-sm">-</div>
                     </div>
                 </div>
+            </div>
+            <!-- Prediction panel -->
+            <div id="predictionPanel" class="flex gap-2 justify-center items-center">
+                <button id="predictWhite" class="btn btn-xs btn-outline gap-1" title="Predict White wins" onclick="makePrediction(0)">
+                    ⚪ <span id="whiteVotes"></span>
+                </button>
+                <span class="text-xs text-gray-400 bg-transparent">Who wins?</span>
+                <button id="predictBlack" class="btn btn-xs btn-outline gap-1" title="Predict Black wins" onclick="makePrediction(1)">
+                    <span id="blackVotes"></span> ⚫
+                </button>
             </div>
 
             <!-- Game content -->
@@ -369,17 +381,6 @@
 
                 <!-- Info section -->
                 <div class="grid grid-cols-1 gap-4 h-full">
-                    <!-- Commentary -->
-                    <div class="card bg-base-200 shadow-sm">
-                        <div class="card-body">
-                            <div class="flex justify-between items-center">
-                                <div id="gameStatus" class="badge badge-md font-bold bg-gray-200 text-gray-700">WAITING
-                                </div>
-                            </div>
-                            <div id="commentary" class="commentary text-xs mt-1">Waiting for game to start...</div>
-                        </div>
-                    </div>
-
                     <!-- Moves -->
                     <div class="card bg-base-200 shadow-sm flex-1">
                         <div class="card-body move-history-container">
@@ -389,6 +390,17 @@
                                     style="display: none;">▶️ Replay</button>
                             </div>
                             <div id="moveList" class="move-list text-xs mt-1 move-history-content">No moves yet</div>
+                        </div>
+                    </div>
+
+                    <!-- Commentary -->
+                    <div class="card bg-base-200 shadow-sm">
+                        <div class="card-body">
+                            <div class="flex justify-between items-center">
+                                <div id="gameStatus" class="badge badge-md font-bold bg-gray-200 text-gray-700">WAITING
+                                </div>
+                            </div>
+                            <div id="commentary" class="commentary text-xs mt-1">Waiting for game to start...</div>
                         </div>
                     </div>
 
@@ -448,6 +460,11 @@
                             <div class="stat-title text-xs">🌍 Active Models</div>
                             <div class="stat-value text-lg font-bold" id="stat-models">-</div>
                             <div class="stat-desc text-xs">Unique players</div>
+                        </div>
+                        <div class="stat bg-base-200 rounded-lg p-3">
+                            <div class="stat-title text-xs">💰 Avg Cost</div>
+                            <div class="stat-value text-lg font-bold" id="stat-cost">-</div>
+                            <div class="stat-desc text-xs">Per game</div>
                         </div>
                     </div>
                 </div>
@@ -519,6 +536,7 @@
                 <h3 id="gameOverTitle" class="font-bold text-xl sm:text-2xl mb-2">Game Over</h3>
                 <div id="gameOverWinner" class="text-lg sm:text-xl font-semibold mb-3"></div>
                 <div id="gameOverReason" class="text-sm text-base-content/80 leading-relaxed mb-4 px-2"></div>
+                <div id="predictionResult" class="hidden mt-3 p-3 rounded-lg text-sm font-medium"></div>
             </div>
 
             <div class="modal-action justify-center mt-2 flex-shrink-0 gap-2">
@@ -630,6 +648,10 @@
         let autoStartCountdown = 300;   // Countdown seconds (5 minutes = 300s)
         let myUsername = 'Spectator';   // Chat username assigned by server
         let myColor = 'text-primary';   // Chat color assigned by server
+        let reconnectAttempts = 0;      // WebSocket reconnection attempts
+        const maxReconnectAttempts = 10;
+        const baseReconnectDelay = 1000; // 1 second
+        let myPrediction = null;        // User's prediction for current game (0=white, 1=black, null=none)
 
         // p5.js variables
         let chessCanvas;
@@ -822,6 +844,10 @@
             document.getElementById('chatInput').addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') sendChat();
             });
+
+            // Set up prediction buttons
+            document.getElementById('predictWhite').addEventListener('click', () => makePrediction(0));
+            document.getElementById('predictBlack').addEventListener('click', () => makePrediction(1));
 
             // Chat collapse/expand toggle
             let chatCollapsed = false;
@@ -1215,6 +1241,9 @@
             document.getElementById('stat-longest').textContent = meta.longest_game || 0;
             document.getElementById('stat-decisive').textContent = `${meta.decisive_rate || 100}%`;
             document.getElementById('stat-models').textContent = meta.active_models || 0;
+            // Format cost as $X.XX or $X.XXXX for very small values
+            const avgCost = meta.avg_cost_per_game || 0;
+            document.getElementById('stat-cost').textContent = avgCost > 0 ? `$${avgCost.toFixed(avgCost < 0.01 ? 4 : 2)}` : '-';
         }
 
         // Load leaderboard data
@@ -1417,11 +1446,32 @@
         }
 
         /**
+         * Update the connection status indicator in the chat header
+         * @param {string} status - Connection status: 'connected', 'disconnected', or 'failed'
+         */
+        function updateConnectionStatus(status) {
+            const dot = document.getElementById('connectionDot');
+            const title = document.getElementById('chatTitle');
+            if (!dot || !title) return;
+
+            if (status === 'connected') {
+                dot.className = 'w-2 h-2 rounded-full bg-success inline-block mr-1';
+                title.textContent = 'Chat';
+            } else if (status === 'disconnected') {
+                dot.className = 'w-2 h-2 rounded-full bg-warning inline-block mr-1';
+                title.textContent = 'Reconnecting...';
+            } else if (status === 'failed') {
+                dot.className = 'w-2 h-2 rounded-full bg-error inline-block mr-1';
+                title.textContent = 'Offline';
+            }
+        }
+
+        /**
          * Connect to WebSocket for real-time game updates
-         * 
+         *
          * This function establishes a WebSocket connection to the server to receive
          * live updates about the game in progress, including moves, commentary, and game state.
-         * 
+         *
          * @param {string} gameId - The ID of the game to connect to
          */
         function connectWebSocket(gameId) {
@@ -1435,9 +1485,19 @@
                 socket.close();
             }
 
+            // Reset reconnection counter for intentional connections
+            reconnectAttempts = 0;
+
             // Determine the appropriate WebSocket protocol based on page protocol (HTTP/HTTPS)
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws/${gameId}?chat_scope=${encodeURIComponent(chatScope)}`;
+            let wsUrl = `${protocol}//${window.location.host}/ws/${gameId}?chat_scope=${encodeURIComponent(chatScope)}`;
+
+            // Try to restore username/color from localStorage
+            const savedUsername = localStorage.getItem('chat_username');
+            const savedColor = localStorage.getItem('chat_color');
+            if (savedUsername && savedColor) {
+                wsUrl += `&restore_username=${encodeURIComponent(savedUsername)}&restore_color=${encodeURIComponent(savedColor)}`;
+            }
 
             log(`Connecting to WebSocket at ${wsUrl} (chat_scope: ${chatScope})`);
             socket = new WebSocket(wsUrl);
@@ -1445,6 +1505,8 @@
             // Connection established handler
             socket.onopen = () => {
                 log('WebSocket connected successfully');
+                reconnectAttempts = 0;  // Reset on successful connection
+                updateConnectionStatus('connected');
             };
 
             // Message received handler
@@ -1462,13 +1524,30 @@
             };
 
             // Connection closed handler
-            socket.onclose = () => {
-                log('WebSocket connection closed');
+            socket.onclose = (event) => {
+                log(`WebSocket connection closed (code: ${event.code})`);
+                updateConnectionStatus('disconnected');
+
+                // Attempt reconnection with exponential backoff
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    const delay = Math.min(baseReconnectDelay * Math.pow(2, reconnectAttempts), 30000);
+                    reconnectAttempts++;
+                    log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
+                    setTimeout(() => {
+                        if (currentGameId) {
+                            connectWebSocket(currentGameId);
+                        }
+                    }, delay);
+                } else {
+                    log('Max reconnection attempts reached');
+                    updateConnectionStatus('failed');
+                }
             };
 
             // Error handler
             socket.onerror = (error) => {
                 console.error('WebSocket error:', error);
+                updateConnectionStatus('disconnected');
             };
         }
 
@@ -1591,6 +1670,9 @@
                     // Server assigned us a username and color for chat
                     myUsername = message.username;
                     myColor = message.color || 'text-primary';
+                    // Save to localStorage for session persistence across game changes
+                    localStorage.setItem('chat_username', myUsername);
+                    localStorage.setItem('chat_color', myColor);
                     log(`Assigned chat username: ${myUsername} (${myColor}), chat_scope: ${message.chat_scope}`);
                     // Update chat viewer count from welcome message
                     if (message.chat_viewers) {
@@ -1623,6 +1705,19 @@
                         document.getElementById('chatContainer').classList.remove('hidden');
                         chatWasShown = true;
                     }
+                    break;
+
+                case 'prediction_update':
+                    // Update prediction counts
+                    console.log('Prediction update received:', message, 'user_prediction type:', typeof message.user_prediction);
+                    // Restore user's prediction FIRST (before updating counts)
+                    if (typeof message.user_prediction === 'number') {
+                        console.log('Restoring user prediction:', message.user_prediction);
+                        myPrediction = message.user_prediction;
+                        updatePredictionButtons();
+                    }
+                    // Now update counts (will show if myPrediction is set)
+                    updatePredictionCounts(message.white_predictions || 0, message.black_predictions || 0);
                     break;
 
                 default:
@@ -1666,6 +1761,90 @@
         }
 
         /**
+         * Make a prediction for the current game
+         * @param {number} winner - 0 for white, 1 for black
+         */
+        function makePrediction(winner) {
+            console.log('makePrediction called:', winner, 'current:', myPrediction);
+            if (myPrediction !== null) return; // Already predicted
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                console.log('Socket not ready');
+                return;
+            }
+
+            console.log('Sending prediction:', winner);
+            socket.send(JSON.stringify({ type: 'prediction', winner }));
+            myPrediction = winner;
+            updatePredictionButtons();
+            revealPredictionCounts(); // Show counts after voting
+        }
+
+        /**
+         * Update prediction button states based on user's prediction
+         */
+        function updatePredictionButtons() {
+            const whiteBtn = document.getElementById('predictWhite');
+            const blackBtn = document.getElementById('predictBlack');
+
+            if (myPrediction === 0) {
+                whiteBtn.classList.add('btn-success');
+                whiteBtn.classList.remove('btn-outline');
+                blackBtn.disabled = true;
+                blackBtn.classList.add('opacity-50');
+            } else if (myPrediction === 1) {
+                blackBtn.classList.add('btn-success');
+                blackBtn.classList.remove('btn-outline');
+                whiteBtn.disabled = true;
+                whiteBtn.classList.add('opacity-50');
+            } else {
+                // Reset buttons
+                whiteBtn.classList.remove('btn-success', 'opacity-50');
+                whiteBtn.classList.add('btn-outline');
+                whiteBtn.disabled = false;
+                blackBtn.classList.remove('btn-success', 'opacity-50');
+                blackBtn.classList.add('btn-outline');
+                blackBtn.disabled = false;
+            }
+        }
+
+        /**
+         * Update prediction vote counts (only show if user has voted)
+         */
+        let pendingWhiteVotes = 0;
+        let pendingBlackVotes = 0;
+
+        function updatePredictionCounts(whiteVotes, blackVotes) {
+            pendingWhiteVotes = whiteVotes;
+            pendingBlackVotes = blackVotes;
+            // Only show counts if user has already voted
+            if (myPrediction !== null) {
+                document.getElementById('whiteVotes').textContent = whiteVotes;
+                document.getElementById('blackVotes').textContent = blackVotes;
+            } else {
+                // Hide counts until user votes
+                document.getElementById('whiteVotes').textContent = '';
+                document.getElementById('blackVotes').textContent = '';
+            }
+        }
+
+        function revealPredictionCounts() {
+            document.getElementById('whiteVotes').textContent = pendingWhiteVotes;
+            document.getElementById('blackVotes').textContent = pendingBlackVotes;
+        }
+
+        /**
+         * Reset predictions for new game
+         */
+        function resetPredictions() {
+            myPrediction = null;
+            pendingWhiteVotes = 0;
+            pendingBlackVotes = 0;
+            updatePredictionButtons();
+            document.getElementById('whiteVotes').textContent = '';
+            document.getElementById('blackVotes').textContent = '';
+        }
+
+        /**
          * Update viewer count display - show chat once 2+ viewers, never hide
          */
         let chatWasShown = false;
@@ -1703,14 +1882,32 @@
             model1Element.textContent = formatPlayerName(data.model1);
             model2Element.textContent = formatPlayerName(data.model2);
 
-            // Add star indicator for previous winner
-            if (previousWinner) {
-                if (previousWinner.position === 0 && data.model1 === previousWinner.model) {
+            // Update cost displays (hide if below $0.0001)
+            const cost1Display = document.getElementById('cost1Display');
+            const cost2Display = document.getElementById('cost2Display');
+            if (data.cost_model1 !== undefined && data.cost_model1 >= 0.0001) {
+                cost1Display.textContent = `$${data.cost_model1.toFixed(4)}`;
+            } else {
+                cost1Display.textContent = '';
+            }
+            if (data.cost_model2 !== undefined && data.cost_model2 >= 0.0001) {
+                cost2Display.textContent = `$${data.cost_model2.toFixed(4)}`;
+            } else {
+                cost2Display.textContent = '';
+            }
+
+            // Add star indicator for previous winner (regardless of current side)
+            if (previousWinner && previousWinner.model) {
+                if (data.model1 === previousWinner.model) {
                     model1Element.innerHTML = `⭐ ${formatPlayerName(data.model1)}`;
                     model1Element.title = 'Won previous game';
-                } else if (previousWinner.position === 1 && data.model2 === previousWinner.model) {
+                } else if (data.model2 === previousWinner.model) {
                     model2Element.innerHTML = `⭐ ${formatPlayerName(data.model2)}`;
                     model2Element.title = 'Won previous game';
+                } else {
+                    // Winner not in this game, clear tooltips
+                    model1Element.title = '';
+                    model2Element.title = '';
                 }
             } else {
                 // Clear any tooltips if no previous winner
@@ -2304,6 +2501,28 @@
             document.getElementById('gameOverWinner').innerHTML = winnerText;
             document.getElementById('gameOverReason').innerHTML = reasonText;
 
+            // Show prediction result if user made a prediction
+            const predictionResultEl = document.getElementById('predictionResult');
+            if (myPrediction !== null && data.result.winner !== undefined) {
+                const actualWinner = data.result.winner; // 0 = white, 1 = black
+                const userWasCorrect = (myPrediction === actualWinner);
+
+                if (data.result.result === 'draw') {
+                    // Draw - no one wins
+                    predictionResultEl.innerHTML = '🤷 You predicted ' + (myPrediction === 0 ? 'White' : 'Black') + ', but it was a draw!';
+                    predictionResultEl.className = 'mt-3 p-3 rounded-lg text-sm font-medium bg-base-200 text-base-content';
+                } else if (userWasCorrect) {
+                    predictionResultEl.innerHTML = '🎯 Nice call! You predicted correctly!';
+                    predictionResultEl.className = 'mt-3 p-3 rounded-lg text-sm font-medium bg-success/20 text-success';
+                } else {
+                    predictionResultEl.innerHTML = '😅 Better luck next time! You predicted ' + (myPrediction === 0 ? 'White' : 'Black');
+                    predictionResultEl.className = 'mt-3 p-3 rounded-lg text-sm font-medium bg-error/20 text-error';
+                }
+                predictionResultEl.classList.remove('hidden');
+            } else {
+                predictionResultEl.classList.add('hidden');
+            }
+
             // Update UI
             document.getElementById('gameStatus').textContent = 'GAME OVER';
             document.getElementById('gameStatus').className = 'badge badge-md badge-neutral font-bold';
@@ -2719,6 +2938,7 @@
             particles = []; // Clear particle effects
             trailPoints = []; // Clear motion trails
             afterimages = []; // Clear afterimages
+            resetPredictions(); // Clear predictions for new game
             speedLines = []; // Clear speed lines
             screenShake = { x: 0, y: 0, intensity: 0 };
             impactFlash = { active: false, x: 0, y: 0, radius: 0, alpha: 0 };
@@ -3994,7 +4214,8 @@
         <div class="bg-base-100 shadow-lg rounded-t-lg border border-base-300">
             <!-- Chat Header (clickable to toggle) -->
             <div id="chatHeader" class="flex justify-between items-center p-2 cursor-pointer bg-base-200 rounded-t-lg hover:bg-base-300">
-                <span id="chatTitle" class="text-sm font-bold">💬 Chat</span>
+                <span id="connectionDot" class="w-2 h-2 rounded-full bg-success inline-block mr-1"></span>
+                <span id="chatTitle" class="text-sm font-bold">Chat</span>
                 <span id="chatToggleIcon" class="text-xs">▼</span>
             </div>
             <!-- Chat Body (collapsible) -->
