@@ -573,16 +573,25 @@ class GameManager:
         username, color = self._generate_username()
         self.connection_usernames[websocket] = (username, color)
         logger.info(f"Client connected to game {game_id} as {username}. Total clients: {len(self.connections[game_id])}")
-        
-    def disconnect(self, websocket: WebSocket, game_id: str):
-        """Disconnect a websocket"""
+
+    async def disconnect_and_broadcast(self, websocket: WebSocket, game_id: str):
+        """Disconnect a websocket and broadcast updated viewer count"""
         if game_id in self.connections:
             if websocket in self.connections[game_id]:
                 self.connections[game_id].remove(websocket)
                 logger.info(f"Client disconnected from game {game_id}")
+                # Broadcast updated viewer count
+                await self.broadcast(game_id, {
+                    "type": "viewer_count",
+                    "count": len(self.connections.get(game_id, []))
+                })
         # Clean up chat metadata
         self.connection_usernames.pop(websocket, None)
         self.last_chat_time.pop(websocket, None)
+
+    def get_viewer_count(self, game_id: str) -> int:
+        """Get the number of viewers for a game"""
+        return len(self.connections.get(game_id, []))
     
     async def broadcast(self, game_id: str, message: dict):
         """Broadcast a message to all clients connected to a game"""
@@ -2093,10 +2102,14 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                 }
             })
 
-        # Send username and color to client (for chat)
+        # Send username, color, and viewer count to client (for chat)
         user_data = game_manager.connection_usernames.get(websocket, ("Spectator", "text-gray-500"))
         username, color = user_data if isinstance(user_data, tuple) else (user_data, "text-gray-500")
-        await websocket.send_json({"type": "welcome", "username": username, "color": color})
+        viewer_count = game_manager.get_viewer_count(game_id)
+        await websocket.send_json({"type": "welcome", "username": username, "color": color, "viewers": viewer_count})
+
+        # Broadcast updated viewer count to all other clients
+        await game_manager.broadcast(game_id, {"type": "viewer_count", "count": viewer_count})
 
         # Send recent chat messages from database
         chat_history = database.get_chat_messages(game_id, limit=30)
@@ -2147,10 +2160,10 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
                 pass  # Ignore non-JSON messages (keep-alive, etc.)
 
     except WebSocketDisconnect:
-        game_manager.disconnect(websocket, game_id)
+        await game_manager.disconnect_and_broadcast(websocket, game_id)
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
-        game_manager.disconnect(websocket, game_id)
+        await game_manager.disconnect_and_broadcast(websocket, game_id)
 
 # Run the application with Uvicorn when executing this file directly
 if __name__ == "__main__":

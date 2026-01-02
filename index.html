@@ -1593,6 +1593,15 @@
                     myUsername = message.username;
                     myColor = message.color || 'text-primary';
                     log(`Assigned chat username: ${myUsername} (${myColor})`);
+                    // Update viewer count from welcome message
+                    if (message.viewers) {
+                        updateViewerCount(message.viewers);
+                    }
+                    break;
+
+                case 'viewer_count':
+                    // Someone joined or left
+                    updateViewerCount(message.count);
                     break;
 
                 case 'chat_message':
@@ -1644,6 +1653,30 @@
             if (text && socket && socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({ type: 'chat_message', text }));
                 input.value = '';
+            }
+        }
+
+        /**
+         * Update viewer count display - hide chat and badge if only 1 viewer
+         */
+        function updateViewerCount(count) {
+            const chatContainer = document.getElementById('chatContainer');
+            const chatTitle = document.getElementById('chatTitle');
+            const viewersBadge = document.getElementById('viewersBadge');
+            const viewersCount = document.getElementById('viewersCount');
+
+            // Update header badge
+            viewersCount.textContent = count;
+
+            if (count > 1) {
+                // Show chat and viewer badge when multiple people
+                chatContainer.classList.remove('hidden');
+                viewersBadge.style.display = '';
+                chatTitle.textContent = `💬 Chat (${count})`;
+            } else {
+                // Hide chat and badge when alone
+                chatContainer.classList.add('hidden');
+                viewersBadge.style.display = 'none';
             }
         }
 
@@ -3942,12 +3975,12 @@
         }
     </script>
 
-    <!-- Fixed Chat at Bottom -->
-    <div id="chatContainer" class="fixed bottom-0 right-4 w-80 z-50 transition-all duration-300">
+    <!-- Fixed Chat at Bottom (hidden when only 1 viewer) -->
+    <div id="chatContainer" class="fixed bottom-0 right-4 w-80 z-50 transition-all duration-300 hidden">
         <div class="bg-base-100 shadow-lg rounded-t-lg border border-base-300">
             <!-- Chat Header (clickable to toggle) -->
             <div id="chatHeader" class="flex justify-between items-center p-2 cursor-pointer bg-base-200 rounded-t-lg hover:bg-base-300">
-                <span class="text-sm font-bold">💬 Chat</span>
+                <span id="chatTitle" class="text-sm font-bold">💬 Chat</span>
                 <span id="chatToggleIcon" class="text-xs">▼</span>
             </div>
             <!-- Chat Body (collapsible) -->
