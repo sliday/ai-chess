@@ -42,7 +42,6 @@ import os
 import random
 import json
 import time
-import html
 import chess
 import asyncio
 import logging
@@ -175,6 +174,8 @@ MODEL_BLACKLIST = {
     "openai/o3-deep-research",
     "openai/o4-mini-deep-research",
     "openai/o3-mini-high",
+    # Anthropic expensive models
+    "anthropic/claude-opus-4.1",
     # Deep research models (typically expensive)
     "perplexity/sonar-deep-research",
 }
@@ -192,8 +193,13 @@ CHAT_BOT_PROBABILITIES = {
     "game_over": 0.8,        # 80% on game end
     "chat_response": 0.4,    # 40% to respond to interesting chat
     "question_response": 0.8, # 80% to respond to user questions
-    "question_initiate": 0.1   # 10% to ask random question
+    "question_initiate": 0.1, # 10% to ask random question
+    "boredom": 0.6           # 60% when nothing is happening
 }
+
+# Boredom mode config
+BOREDOM_INACTIVITY_THRESHOLD = 30  # seconds of no activity before boredom kicks in
+BOREDOM_CHECK_INTERVAL = 15        # seconds between boredom checks
 
 # Chat bot name pools (noun + matching emoji pairs)
 CHAT_BOT_ADJECTIVES = ["Happy", "Sleepy", "Chill", "Quick", "Bold", "Quiet", "Lazy", "Lucky", "Wild", "Cool"]
@@ -554,7 +560,88 @@ class GameManager:
         # Track consecutive game loop failures for backoff
         self._game_loop_failures: int = 0
         self._max_game_loop_failures: int = 5
-        
+        # Boredom mode tracking
+        self.last_activity_time: float = time.time()
+        self._boredom_task: Optional[asyncio.Task] = None
+
+    def update_activity(self):
+        """Update last activity time - call on moves, chat messages, etc."""
+        self.last_activity_time = time.time()
+
+    def start_boredom_loop(self):
+        """Start the boredom check background task"""
+        if self._boredom_task is None or self._boredom_task.done():
+            self._boredom_task = asyncio.create_task(self._boredom_loop())
+            logger.info("Boredom mode loop started")
+
+    async def _boredom_loop(self):
+        """Background task that triggers boredom chat when nothing is happening"""
+        while True:
+            try:
+                await asyncio.sleep(BOREDOM_CHECK_INTERVAL)
+
+                # Check if enough viewers are connected
+                viewer_count = self.get_chat_viewer_count("lobby")
+                if viewer_count < 1:
+                    continue
+
+                # Check if we've been inactive long enough
+                time_since_activity = time.time() - self.last_activity_time
+                if time_since_activity < BOREDOM_INACTIVITY_THRESHOLD:
+                    continue
+
+                # Check if there's a game in progress (bots should be quieter during games)
+                has_active_game = any(
+                    g.status == "in_progress"
+                    for g in self.active_games.values()
+                )
+
+                # Lower probability during active games
+                boredom_prob = CHAT_BOT_PROBABILITIES["boredom"]
+                if has_active_game:
+                    boredom_prob *= 0.3  # 30% of normal during games
+
+                if random.random() > boredom_prob:
+                    continue
+
+                # Pick a random bot to say something
+                bot = random.choice([CHAT_BOT_1, CHAT_BOT_2])
+
+                # Get chat history for context
+                chat_history = database.get_chat_messages("lobby", limit=15)
+
+                # Get bot response
+                bot_response = await get_chat_bot_response(
+                    bot=bot,
+                    commentary="",
+                    chat_history=chat_history,
+                    viewer_count=viewer_count,
+                    event_type="boredom"
+                )
+
+                if bot_response:
+                    now = time.time()
+                    bot_msg = {
+                        "type": "chat_message",
+                        "username": bot["username"],
+                        "text": bot_response,
+                        "timestamp": now,
+                        "color": bot["color"]
+                    }
+                    database.save_chat_message("lobby", bot["username"], bot_response, now, bot["color"])
+                    await self.broadcast_chat("lobby", bot_msg)
+                    logger.info(f"Boredom mode: {bot['username']} said: {bot_response}")
+
+                    # Update activity so we don't spam
+                    self.update_activity()
+
+            except asyncio.CancelledError:
+                logger.info("Boredom loop cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Boredom loop error: {e}")
+                await asyncio.sleep(5)  # Brief pause on error
+
     def save_result(self, result: GameResult, game: ChessGame):
         """Save game result to database"""
         database.save_game_result(
@@ -1095,6 +1182,9 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
                 commentary_task = get_commentary(game.get_board_ascii(), san_move, game.moves_history, game.board_image_base64)
                 commentary_index = len(game.commentary)
                 game.commentary.append("Analyzing move...") # Placeholder
+
+                # Update activity time for boredom mode
+                self.update_activity()
 
                 # Send update
                 await self.broadcast(game_id, {
@@ -2288,6 +2378,28 @@ Chat:
 {chat_context}
 
 React. 2-4 words."""
+        elif event_type == "boredom":
+            # Boredom mode - bots engage in random chat when nothing is happening
+            boredom_topics = [
+                "what everyone's up to",
+                "random shower thoughts",
+                "hot takes about anything",
+                "weird questions",
+                "observations about life",
+                "something totally random",
+                "a mini rant about nothing",
+                "conspiracy theories (joking)",
+                "unpopular opinions",
+                "asking viewers something random"
+            ]
+            topic = random.choice(boredom_topics)
+            user_prompt = f"""Nothing happening rn. Stream is quiet.
+
+Chat history:
+{chat_context}
+
+Read the chat vibe and say something about {topic}. Be random, chaotic, fun. Ask questions, start debates, be silly.
+Keep it 3-8 words. Don't mention the game or chess."""
         else:
             user_prompt = f"""Chess game in progress.
 
@@ -2678,6 +2790,8 @@ async def delayed_start():
     game_manager.start_autonomous_game()
     # Start periodic chat cleanup
     asyncio.create_task(periodic_chat_cleanup())
+    # Start boredom mode for chat bots
+    game_manager.start_boredom_loop()
 
 async def periodic_chat_cleanup():
     """Run chat cleanup every 6 hours"""
@@ -2801,8 +2915,9 @@ async def websocket_endpoint(
 
                     user_data = game_manager.connection_usernames.get(websocket, ("Anonymous", "text-gray-500"))
                     username, color = user_data if isinstance(user_data, tuple) else (user_data, "text-gray-500")
-                    raw_text = data.get("text", "")[:200]  # Max 200 chars
-                    text = html.escape(raw_text)  # Escape HTML to prevent XSS
+                    # Note: Frontend already escapes HTML via escapeHTML() before rendering
+                    # Don't escape here to avoid double-escaping
+                    text = data.get("text", "")[:200]  # Max 200 chars
 
                     if text.strip():
                         game_manager.last_chat_time[websocket] = now
@@ -2817,6 +2932,9 @@ async def websocket_endpoint(
                         database.save_chat_message(effective_chat_scope, username, text, now, color)
                         # Broadcast to all users in the same chat scope
                         await game_manager.broadcast_chat(effective_chat_scope, msg)
+
+                        # Update activity time for boredom mode
+                        game_manager.update_activity()
 
                         # Check if user is talking to a bot (lobby chat only)
                         if effective_chat_scope == "lobby":
