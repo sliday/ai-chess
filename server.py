@@ -521,10 +521,15 @@ class GameManager:
         
         return game_id
     
-    # Emoji prefixes for anonymous chat usernames
-    CHAT_EMOJIS = ["🦊", "🐼", "🦁", "🐯", "🐨", "🐸", "🦄", "🐙", "🦋", "🐝",
-                   "🦈", "🐬", "🦜", "🦩", "🐢", "🦎", "🦔", "🐿️", "🦝", "🦦",
-                   "🌟", "⚡", "🔥", "💎", "🎯", "🎲", "🎪", "🚀", "🌈", "🍀"]
+    # Adjectives and nouns with emojis for anonymous chat usernames
+    CHAT_ADJECTIVES = ["Happy", "Clever", "Swift", "Brave", "Calm", "Wise", "Bold", "Cool",
+                       "Keen", "Quick", "Sharp", "Bright", "Chill", "Epic", "Lucky", "Noble"]
+    CHAT_NOUNS = [
+        ("Star", "⭐"), ("Fox", "🦊"), ("Panda", "🐼"), ("Lion", "🦁"), ("Tiger", "🐯"),
+        ("Koala", "🐨"), ("Frog", "🐸"), ("Owl", "🦉"), ("Wolf", "🐺"), ("Bear", "🐻"),
+        ("Dolphin", "🐬"), ("Eagle", "🦅"), ("Falcon", "🦅"), ("Dragon", "🐉"), ("Phoenix", "🔥"),
+        ("Knight", "♞"), ("Rook", "♜"), ("Wizard", "🧙"), ("Ninja", "🥷"), ("Pirate", "🏴‍☠️")
+    ]
 
     async def connect(self, websocket: WebSocket, game_id: str):
         """Connect a websocket to a game"""
@@ -532,9 +537,10 @@ class GameManager:
         if game_id not in self.connections:
             self.connections[game_id] = []
         self.connections[game_id].append(websocket)
-        # Assign anonymous username with emoji for chat
-        emoji = random.choice(self.CHAT_EMOJIS)
-        username = f"{emoji} Guest_{random.randint(100, 999)}"
+        # Assign anonymous username: Adjective + Noun + Emoji
+        adj = random.choice(self.CHAT_ADJECTIVES)
+        noun, emoji = random.choice(self.CHAT_NOUNS)
+        username = f"{adj} {noun} {emoji}"
         self.connection_usernames[websocket] = username
         logger.info(f"Client connected to game {game_id} as {username}. Total clients: {len(self.connections[game_id])}")
         
