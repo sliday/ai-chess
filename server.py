@@ -204,20 +204,18 @@ def generate_chat_bot_name() -> tuple:
     color = random.choice(CHAT_BOT_COLORS)
     return f"{adj} {noun} {emoji}", color
 
-# Bot 1: The Hype Bot - enthusiastic, positive, gets excited
+# Bot 1
 _bot1_name, _bot1_color = generate_chat_bot_name()
 CHAT_BOT_1 = {
     "username": _bot1_name,
     "color": _bot1_color,
-    "rate_limit": 8,  # 8 seconds between messages
+    "rate_limit": 8,
     "activity_multiplier": 1.0,
     "last_message_time": 0,
-    "recent_messages": [],  # Track last 5 to avoid repetition
-    "personality": "hype",
-    "traits": "enthusiastic, optimistic, roots for underdogs, uses caps for excitement like 'LETS GO' or 'HUGE', says things like 'actually insane', 'no way', 'clutch', loves comebacks"
+    "recent_messages": [],
 }
 
-# Bot 2: The Skeptic - doubtful, dry humor, questions everything
+# Bot 2
 _bot2_name, _bot2_color = generate_chat_bot_name()
 while _bot2_name == _bot1_name:
     _bot2_name, _bot2_color = generate_chat_bot_name()
@@ -227,12 +225,10 @@ while _bot2_color == _bot1_color:
 CHAT_BOT_2 = {
     "username": _bot2_name,
     "color": _bot2_color,
-    "rate_limit": 12,  # 12 seconds between messages
+    "rate_limit": 12,
     "activity_multiplier": 0.8,
     "last_message_time": 0,
-    "recent_messages": [],  # Track last 5 to avoid repetition
-    "personality": "skeptic",
-    "traits": "skeptical, dry humor, questions everything, doubts predictions, says 'idk about that', 'we'll see', 'doubt it', 'hmm', never gets too excited, lowkey pessimistic"
+    "recent_messages": [],
 }
 
 # Legacy compatibility
@@ -994,9 +990,18 @@ No intro, no outro, only your next move in proper UCI format (e.g., "e2e4" for m
                         logger.info(f"Using fallback prompt {fallback_prompt_index + 1}: {fallback_user_msg[:50]}...")
 
                         # Create simplified retry prompt with different phrasing + position hints
-                        # NOTE: We don't show example legal moves to avoid move copying behavior
                         board_fen = game.board.fen()
-                        legal_moves_count = len(list(game.board.legal_moves))
+                        legal_moves_list = [m.uci() for m in game.board.legal_moves]
+                        legal_moves_count = len(legal_moves_list)
+
+                        # On last 2 attempts, show some legal moves as hints
+                        legal_moves_hint = ""
+                        if retry_count >= 3:
+                            # Show 8-10 random legal moves to help the model
+                            import random
+                            sample_moves = random.sample(legal_moves_list, min(10, len(legal_moves_list)))
+                            legal_moves_hint = f"\nSome valid moves you can play: {', '.join(sample_moves)}"
+                            logger.info(f"Providing legal move hints on retry {retry_count}: {sample_moves}")
 
                         retry_prompt = f"""
 You are playing as {"WHITE" if game.current_player == 0 else "BLACK"} in this chess game.
@@ -1010,9 +1015,9 @@ FEN: {board_fen}
 {moves_history_text}
 
 WARNING: Your previous move '{raw_move}' was INVALID for this position.
-- The board has changed since the opening - pieces have moved or been captured
-- There are {legal_moves_count} legal moves available in this position
-- Carefully analyze which pieces YOU control and where they can legally move
+- DO NOT repeat '{raw_move}' - try something DIFFERENT
+- There are {legal_moves_count} legal moves available - pick a DIFFERENT one
+- Look at the board carefully - pieces have moved from their starting positions{legal_moves_hint}
 
 {fallback_user_msg}
 """
@@ -1483,11 +1488,28 @@ async def interpret_move(raw_move: str, board_state: str, current_player: int = 
         return "INVALID"
     
     # Clean up the raw move (remove extra spaces, punctuation, newlines)
-    raw_move = raw_move.strip().replace('.', '').replace(',', '').replace(':', '')
-    
+    raw_move = raw_move.strip().replace(',', '').replace(':', '')
+
+    # Remove trailing dots/ellipsis (e.g., "e5..." → "e5")
+    raw_move = raw_move.rstrip('.')
+
     # ENHANCED: Try to extract a valid UCI move from unstructured responses
     # Look for patterns like "Here is your move: e2e4" or "My move is e2e4"
     import re
+
+    # Handle spaces in UCI notation (e.g., "a4 a3" → "a4a3")
+    space_uci_pattern = r'^([a-h][1-8])\s+([a-h][1-8][qrbn]?)$'
+    space_match = re.match(space_uci_pattern, raw_move.lower())
+    if space_match:
+        raw_move = space_match.group(1) + space_match.group(2)
+        logger.info(f"Joined spaced UCI notation: '{raw_move}'")
+
+    # Handle hyphenated notation (e.g., "e2-e4" → "e2e4")
+    hyphen_pattern = r'^([a-h][1-8])-([a-h][1-8][qrbn]?)$'
+    hyphen_match = re.match(hyphen_pattern, raw_move.lower())
+    if hyphen_match:
+        raw_move = hyphen_match.group(1) + hyphen_match.group(2)
+        logger.info(f"Converted hyphenated notation: '{raw_move}'")
     
     # Remove code blocks if present (```e2e4``` or ```chess e2e4```)
     if '```' in raw_move:
@@ -2185,35 +2207,21 @@ async def get_chat_bot_response(
             bc = black_model.split('/')[0] if black_model and '/' in black_model else ""
             game_context = f"Match: {w} vs {b} | Companies: {wc} vs {bc}"
 
-        # Get personality traits
-        personality = bot.get("personality", "neutral")
-        traits = bot.get("traits", "")
-
         # Get recent messages to avoid repetition
         recent_bot_msgs = bot.get("recent_messages", [])[-5:]
         repetition_warning = ""
         if recent_bot_msgs:
             repetition_warning = f"\n\nDO NOT repeat these (your recent msgs): {', '.join(recent_bot_msgs)}"
 
-        # Extended human-like system prompt with personality
-        system_prompt = f"""You are {bot_name}, watching a chess stream. Reply in 2-5 words max.
-
-YOUR PERSONALITY ({personality}): {traits}
+        # Simple, open-ended system prompt - Twitch chat style
+        system_prompt = f"""You are {bot_name}, watching AI chess on a Twitch-like stream. Reply in 2-5 words max.
 
 {game_context}
 
-VARY YOUR REACTIONS based on your personality:
-- If hype: "LETS GO" "HUGE" "no way" "actually insane" "clutch" "massive W"
-- If skeptic: "idk about that" "we'll see" "doubt it" "hmm" "sure" "if u say so"
-- Neutral: "wait what" "hold up" "clean" "rough" "fair" "makes sense"
+Read the chat and fit in naturally. Match the vibe - if chat is hyped, join in. If skeptical, you can be too.
+React like a real viewer would. Short, punchy, casual.{repetition_warning}
 
-BE HUMAN:
-- Lowercase ok (unless hype moment)
-- Stay in character - {personality} personality
-- Can disagree with chat
-- Reference companies casually{repetition_warning}
-
-NEVER: chess notation, emojis, hashtags, em dashes, starting with names"""
+NEVER: chess notation, emojis, hashtags, em dashes"""
 
         # Build user prompt based on context
         if direct_mention and user_message:
@@ -2222,14 +2230,14 @@ NEVER: chess notation, emojis, hashtags, em dashes, starting with names"""
 Recent chat:
 {chat_context}
 
-React to what they said. Agree, disagree, or comment. 2-5 words. Stay in character."""
+React naturally. 2-5 words."""
         elif event_type == "game_over":
             user_prompt = f"""GAME OVER! {commentary}
 
 Chat:
 {chat_context}
 
-React to the winner/loser! Be excited or disappointed based on your personality. 2-5 words."""
+React to the result. 2-5 words."""
         elif event_type in ("blunder", "mistake"):
             user_prompt = f"""Bad move happened. Commentary: {commentary}
 
@@ -2294,7 +2302,7 @@ React or comment. 2-4 words. Sometimes stay quiet - don't force it."""
                 bot["recent_messages"].append(message)
                 if len(bot["recent_messages"]) > 5:
                     bot["recent_messages"].pop(0)
-                logger.info(f"Bot {bot_name} ({personality}): {message}")
+                logger.info(f"Bot {bot_name}: {message}")
                 return message
 
         return None

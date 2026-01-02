@@ -60,12 +60,19 @@ Visit `http://localhost:8000` in your browser.
 - Feature implementation details
 - Development workflow
 
-## Recent Updates (v1.9.0)
+## Recent Updates (v1.10.0)
 
-- 🎉 **Game End Reactions**: Chat bots now react to wins/losses with personality-appropriate responses
-- 🤖 **Chat Bot Model**: Switched to google/gemini-3-flash-preview for reliable responses
+- 🎭 **Natural Chat Bots**: Removed predefined personalities, bots now match chat vibe naturally
+- 🔧 **Better Move Parsing**: Handle spaced UCI (`a4 a3`), hyphenated (`e2-e4`), trailing dots
+- 💡 **Legal Move Hints**: On retry attempts 4-5, show sample legal moves to help struggling models
+- 🔄 **Smarter Retries**: Explicitly tell models to "try something DIFFERENT"
+
+### v1.9.0
+
+- 🎉 **Game End Reactions**: Chat bots react to wins/losses
+- 🤖 **Chat Bot Model**: Switched to google/gemini-3-flash-preview
 - 🎯 **Improved Modals**: "Start New Game" modal matches game over styling
-- 🧹 **Data Cleanup**: Removed ~1,075 fraudulent short games from free models with inflated Elo
+- 🧹 **Data Cleanup**: Removed ~1,075 fraudulent short games from free models
 
 ### v1.8.0
 

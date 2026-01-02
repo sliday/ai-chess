@@ -163,15 +163,22 @@ Connection: `ws://host/ws/{game_id}`
 - Expensive models excluded from random selection: o3, o3-pro, gpt-5.2-pro, deep-research models
 - Defined in `MODEL_BLACKLIST` set in server.py
 
-**Dual Chat Bots:**
-- Two AI bots with distinct personalities generated on server start
+**Chat Bots:**
+- Two AI bots with random names (adjective + animal + emoji)
 - Model: google/gemini-3-flash-preview
-- Hype Bot: enthusiastic, uses caps for excitement, roots for underdogs
-- Skeptic Bot: dry humor, questions everything, lowkey pessimistic
+- No predefined personalities - bots read chat and match the vibe naturally
+- Twitch-like style: short, punchy, casual (2-5 words)
 - Event-based probabilities: 15% normal, 30% good, 60% brilliant, 70% blunder, 80% game end
-- Rate limits: 8s (hype bot), 12s (skeptic bot)
+- Rate limits: 8s (bot 1), 12s (bot 2)
 - Reacts to game endings with winner/loser context
-- Each bot has unique name (adjective + animal + emoji) and color
+
+**Move Parsing Improvements:**
+- Handle spaced UCI notation: `a4 a3` → `a4a3`
+- Handle hyphenated notation: `e2-e4` → `e2e4`
+- Strip trailing dots: `e5...` → `e5`
+- SAN to UCI conversion for algebraic notation
+- On retry attempts 4-5: show 10 random legal moves as hints
+- Retry prompts explicitly say "try something DIFFERENT"
 
 **Skip Stuck Games:**
 - Frontend: "skip stuck game →" link appears after 45s wait AND 3+ status messages
