@@ -1605,6 +1605,11 @@
                     const chatDiv = document.getElementById('chatMessages');
                     chatDiv.innerHTML = '';
                     message.messages.forEach(m => appendChatMessage(m, true));
+                    // If there's history, show chat even if alone
+                    if (message.messages.length > 0) {
+                        document.getElementById('chatContainer').classList.remove('hidden');
+                        chatWasShown = true;
+                    }
                     break;
 
                 default:
