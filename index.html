@@ -1206,11 +1206,16 @@
                 });
 
                 $('.sparkline-moves').sparkline(data.moves, {
-                    type: 'bar',
-                    barWidth: 3,
+                    type: 'line',
+                    width: '100%',
                     height: '20px',
-                    barColor: '#8b5cf6',
-                    barSpacing: 1,
+                    lineColor: '#8b5cf6',
+                    fillColor: 'rgba(139, 92, 246, 0.2)',
+                    spotColor: '#8b5cf6',
+                    minSpotColor: '#ef4444',
+                    maxSpotColor: '#10b981',
+                    lineWidth: 1.5,
+                    spotRadius: 2,
                     disableTooltips: true,
                     disableHighlight: true
                 });
