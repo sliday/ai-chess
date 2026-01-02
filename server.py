@@ -1222,7 +1222,8 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
                                 chat_history=chat_history,
                                 viewer_count=viewer_count,
                                 white_model=game.model1,
-                                black_model=game.model2
+                                black_model=game.model2,
+                                move_count=len(game.moves_history)
                             )
                             for bot, response in bot_responses:
                                 now = time.time()
@@ -2467,7 +2468,8 @@ async def trigger_chat_bots(
     viewer_count: int,
     white_model: str,
     black_model: str,
-    event_type: str = None
+    event_type: str = None,
+    move_count: int = 0
 ) -> list:
     """Trigger both chat bots to potentially respond
 
@@ -2475,6 +2477,11 @@ async def trigger_chat_bots(
     """
     if event_type is None:
         event_type = get_event_type_from_commentary(commentary)
+
+    # Lower probability for first 3 moves (opening moves are usually standard)
+    if move_count <= 3 and event_type == "normal_move":
+        if random.random() > 0.05:  # Only 5% chance for opening moves
+            return []
 
     responses = []
     for bot in [CHAT_BOT_1, CHAT_BOT_2]:
