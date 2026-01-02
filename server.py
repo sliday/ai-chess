@@ -42,6 +42,7 @@ import os
 import random
 import json
 import time
+import html
 import chess
 import asyncio
 import logging
@@ -550,6 +551,9 @@ class GameManager:
         self.connection_chat_scope: Dict[WebSocket, str] = {}
         # Track the current autonomous game ID
         self.autonomous_game_id: Optional[str] = None
+        # Track consecutive game loop failures for backoff
+        self._game_loop_failures: int = 0
+        self._max_game_loop_failures: int = 5
         
     def save_result(self, result: GameResult, game: ChessGame):
         """Save game result to database"""
@@ -1088,7 +1092,7 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
                     break
 
                 # Commentary (non-blocking) - pass board image if available for vision models
-                commentary_task = await get_commentary(game.get_board_ascii(), san_move, game.moves_history, game.board_image_base64)
+                commentary_task = get_commentary(game.get_board_ascii(), san_move, game.moves_history, game.board_image_base64)
                 commentary_index = len(game.commentary)
                 game.commentary.append("Analyzing move...") # Placeholder
 
@@ -1241,6 +1245,8 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
 
             # Start new autonomous game after delay (only if this was the autonomous game)
             if is_autonomous:
+                # Reset failure counter on successful game completion
+                self._game_loop_failures = 0
                 # Shorter delay for timeouts/forfeits to keep things moving
                 delay = 3 if game.reason in ("timeout_forfeit", "model_error") else 10
                 await asyncio.sleep(delay)
@@ -1248,8 +1254,16 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
             
         except Exception as e:
             logger.error(f"Error in game loop: {e}", exc_info=True)
-            # Try to restart
-            await asyncio.sleep(5)
+            self._game_loop_failures += 1
+
+            if self._game_loop_failures >= self._max_game_loop_failures:
+                logger.critical(f"Too many consecutive game loop failures ({self._game_loop_failures}), stopping autonomous mode")
+                return
+
+            # Exponential backoff: 5s, 10s, 20s, 40s, 80s
+            backoff_delay = 5 * (2 ** (self._game_loop_failures - 1))
+            logger.warning(f"Game loop failure {self._game_loop_failures}/{self._max_game_loop_failures}, retrying in {backoff_delay}s")
+            await asyncio.sleep(backoff_delay)
             self.start_autonomous_game()
             
     def has_active_connections(self) -> bool:
@@ -2064,8 +2078,11 @@ Your move:
     logger.error(f"All retry attempts failed for model {model_id}")
     return ("", 0.0)
 
-async def get_commentary(board_state: str, last_move: str, moves_history: list = None, board_image_base64: str = None) -> str:
-    """Get chess commentary asynchronously without blocking the game"""
+def get_commentary(board_state: str, last_move: str, moves_history: list = None, board_image_base64: str = None):
+    """Get chess commentary asynchronously without blocking the game.
+
+    Returns a Task that can be awaited later to get the commentary string.
+    """
     # Create a task for the commentary but don't await it immediately
     return asyncio.create_task(_fetch_commentary(board_state, last_move, moves_history, board_image_base64))
 
@@ -2784,7 +2801,8 @@ async def websocket_endpoint(
 
                     user_data = game_manager.connection_usernames.get(websocket, ("Anonymous", "text-gray-500"))
                     username, color = user_data if isinstance(user_data, tuple) else (user_data, "text-gray-500")
-                    text = data.get("text", "")[:200]  # Max 200 chars
+                    raw_text = data.get("text", "")[:200]  # Max 200 chars
+                    text = html.escape(raw_text)  # Escape HTML to prevent XSS
 
                     if text.strip():
                         game_manager.last_chat_time[websocket] = now

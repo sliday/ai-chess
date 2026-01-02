@@ -163,24 +163,25 @@ def calculate_elo_change(elo1: int, elo2: int, score: float, k_factor: int = 32)
     return int(round(new_elo1)), int(round(new_elo2))
 
 def get_or_create_elo(model: str) -> int:
-    """Get current Elo rating for a model, create if doesn't exist"""
+    """Get current Elo rating for a model, create if doesn't exist.
+
+    Uses INSERT OR IGNORE to handle race conditions where multiple
+    processes might try to create the same model simultaneously.
+    """
     try:
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
+            timestamp = datetime.now().isoformat()
+            # Use INSERT OR IGNORE to handle race conditions atomically
+            cursor.execute(
+                "INSERT OR IGNORE INTO elo_ratings (model, elo, last_updated) VALUES (?, 1500, ?)",
+                (model, timestamp)
+            )
+            conn.commit()
+            # Now fetch the elo (either existing or newly created)
             cursor.execute("SELECT elo FROM elo_ratings WHERE model = ?", (model,))
             result = cursor.fetchone()
-
-            if result:
-                return result[0]
-            else:
-                # Create new entry with default Elo
-                timestamp = datetime.now().isoformat()
-                cursor.execute(
-                    "INSERT INTO elo_ratings (model, elo, last_updated) VALUES (?, 1500, ?)",
-                    (model, timestamp)
-                )
-                conn.commit()
-                return 1500
+            return result[0] if result else 1500
     except Exception as e:
         logger.error(f"Failed to get/create Elo for {model}: {e}")
         return 1500
@@ -201,72 +202,74 @@ def update_elo(model: str, new_elo: int):
 
 def save_game_result(game_id: str, model1: str, model2: str, winner: Optional[int], reason: str, moves: List[str], fen: str, cost_white: float = 0.0, cost_black: float = 0.0):
     """Save a finished game result and update Elo ratings atomically"""
+    conn = None
     try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            timestamp = datetime.now().isoformat()
-            moves_str = ",".join(moves)
+        # Use isolation_level=None for manual transaction control (avoids nested transaction issues)
+        conn = sqlite3.connect(DB_FILE, isolation_level=None)
+        cursor = conn.cursor()
+        timestamp = datetime.now().isoformat()
+        moves_str = ",".join(moves)
 
-            # Use a transaction to ensure game save and Elo updates are atomic
-            cursor.execute('BEGIN IMMEDIATE')
+        # Use a transaction to ensure game save and Elo updates are atomic
+        cursor.execute('BEGIN IMMEDIATE')
 
-            try:
-                # Save game result
-                cursor.execute('''
-                INSERT INTO games (id, model1, model2, winner, reason, timestamp, moves, fen, cost_white, cost_black)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (game_id, model1, model2, winner, reason, timestamp, moves_str, fen, cost_white, cost_black))
+        try:
+            # Save game result
+            cursor.execute('''
+            INSERT INTO games (id, model1, model2, winner, reason, timestamp, moves, fen, cost_white, cost_black)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (game_id, model1, model2, winner, reason, timestamp, moves_str, fen, cost_white, cost_black))
 
-                # Get or create Elo for model1
-                cursor.execute("SELECT elo FROM elo_ratings WHERE model = ?", (model1,))
-                row = cursor.fetchone()
-                if row:
-                    elo1 = row[0]
-                else:
-                    elo1 = 1500
-                    cursor.execute(
-                        "INSERT INTO elo_ratings (model, elo, last_updated) VALUES (?, ?, ?)",
-                        (model1, elo1, timestamp)
-                    )
-
-                # Get or create Elo for model2
-                cursor.execute("SELECT elo FROM elo_ratings WHERE model = ?", (model2,))
-                row = cursor.fetchone()
-                if row:
-                    elo2 = row[0]
-                else:
-                    elo2 = 1500
-                    cursor.execute(
-                        "INSERT INTO elo_ratings (model, elo, last_updated) VALUES (?, ?, ?)",
-                        (model2, elo2, timestamp)
-                    )
-
-                # Calculate new Elo ratings
-                if winner == 0:
-                    score = 1.0
-                elif winner == 1:
-                    score = 0.0
-                else:
-                    score = 0.5
-
-                new_elo1, new_elo2 = calculate_elo_change(elo1, elo2, score)
-
-                # Update both Elo ratings
+            # Get or create Elo for model1
+            cursor.execute("SELECT elo FROM elo_ratings WHERE model = ?", (model1,))
+            row = cursor.fetchone()
+            if row:
+                elo1 = row[0]
+            else:
+                elo1 = 1500
                 cursor.execute(
-                    "UPDATE elo_ratings SET elo = ?, last_updated = ? WHERE model = ?",
-                    (new_elo1, timestamp, model1)
-                )
-                cursor.execute(
-                    "UPDATE elo_ratings SET elo = ?, last_updated = ? WHERE model = ?",
-                    (new_elo2, timestamp, model2)
+                    "INSERT INTO elo_ratings (model, elo, last_updated) VALUES (?, ?, ?)",
+                    (model1, elo1, timestamp)
                 )
 
-                conn.commit()
-                logger.info(f"Game {game_id} saved, Elo updated: {model1} {elo1}->{new_elo1}, {model2} {elo2}->{new_elo2}")
+            # Get or create Elo for model2
+            cursor.execute("SELECT elo FROM elo_ratings WHERE model = ?", (model2,))
+            row = cursor.fetchone()
+            if row:
+                elo2 = row[0]
+            else:
+                elo2 = 1500
+                cursor.execute(
+                    "INSERT INTO elo_ratings (model, elo, last_updated) VALUES (?, ?, ?)",
+                    (model2, elo2, timestamp)
+                )
 
-            except Exception as e:
-                conn.rollback()
-                raise e
+            # Calculate new Elo ratings
+            if winner == 0:
+                score = 1.0
+            elif winner == 1:
+                score = 0.0
+            else:
+                score = 0.5
+
+            new_elo1, new_elo2 = calculate_elo_change(elo1, elo2, score)
+
+            # Update both Elo ratings
+            cursor.execute(
+                "UPDATE elo_ratings SET elo = ?, last_updated = ? WHERE model = ?",
+                (new_elo1, timestamp, model1)
+            )
+            cursor.execute(
+                "UPDATE elo_ratings SET elo = ?, last_updated = ? WHERE model = ?",
+                (new_elo2, timestamp, model2)
+            )
+
+            cursor.execute('COMMIT')
+            logger.info(f"Game {game_id} saved, Elo updated: {model1} {elo1}->{new_elo1}, {model2} {elo2}->{new_elo2}")
+
+        except Exception as e:
+            cursor.execute('ROLLBACK')
+            raise e
 
         # Invalidate stats cache since game data changed
         invalidate_stats_cache()
@@ -274,6 +277,9 @@ def save_game_result(game_id: str, model1: str, model2: str, winner: Optional[in
     except Exception as e:
         logger.error(f"Failed to save game result: {e}")
         raise  # Re-raise to notify caller of critical failure
+    finally:
+        if conn:
+            conn.close()
 
 def get_current_streak(model: str) -> Dict[str, Any]:
     """Get current win/loss/draw streak for a model"""

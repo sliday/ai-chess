@@ -654,6 +654,8 @@
         let chatScope = 'lobby';        // Chat scope: 'lobby' for main page, or game_id for specific game
         let autoStartTimer = null;      // Auto-start new game timer
         let autoStartCountdown = 300;   // Countdown seconds (5 minutes = 300s)
+        let statsRefreshInterval = null;  // Interval for auto-refreshing stats/sparklines
+        let viewersRefreshInterval = null; // Interval for auto-refreshing viewer count
         let myUsername = 'Spectator';   // Chat username assigned by server
         let myColor = 'text-primary';   // Chat color assigned by server
         let reconnectAttempts = 0;      // WebSocket reconnection attempts
@@ -672,6 +674,12 @@
         let screenShake = { x: 0, y: 0, intensity: 0 }; // Screen shake effect
         let impactFlash = { active: false, x: 0, y: 0, radius: 0, alpha: 0 }; // Landing flash
         let speedLines = [];            // Speed/motion lines
+        // Maximum particle counts to prevent memory issues
+        const MAX_PARTICLES = 200;
+        const MAX_TRAIL_POINTS = 50;
+        const MAX_AFTERIMAGES = 20;
+        const MAX_SPEED_LINES = 30;
+        const MAX_CONFETTI = 150;
         let confetti = [];              // Celebration confetti
         let confettiActive = false;     // Whether confetti is currently active
         let knightRiderPos = 0;         // Knight Rider scanner position (0-1)
@@ -697,6 +705,36 @@
             const timestamp = new Date().toISOString();
             const logMessage = `[${timestamp}] ${level.toUpperCase()}: ${message}`;
             console.log(logMessage);
+        }
+
+        // Safe localStorage helpers (handles quota exceeded, private browsing, etc.)
+        function safeLocalStorageGet(key) {
+            try {
+                return localStorage.getItem(key);
+            } catch (e) {
+                console.warn(`Failed to read localStorage key "${key}":`, e);
+                return null;
+            }
+        }
+
+        function safeLocalStorageSet(key, value) {
+            try {
+                localStorage.setItem(key, value);
+                return true;
+            } catch (e) {
+                console.warn(`Failed to write localStorage key "${key}":`, e);
+                return false;
+            }
+        }
+
+        function safeLocalStorageRemove(key) {
+            try {
+                localStorage.removeItem(key);
+                return true;
+            } catch (e) {
+                console.warn(`Failed to remove localStorage key "${key}":`, e);
+                return false;
+            }
         }
 
         // Basic HTML escaping helpers to prevent XSS when inserting dynamic text
@@ -778,16 +816,24 @@
             await loadViewers();
 
             // Auto-refresh sparklines and stats every 5 minutes
-            setInterval(async () => {
+            statsRefreshInterval = setInterval(async () => {
                 await loadSparklines();
                 await loadStats();
                 console.log('🔄 Auto-refreshed sparklines and stats');
             }, 300000); // 5 minutes = 300,000 ms
 
             // Auto-refresh viewer count every 10 seconds
-            setInterval(async () => {
+            viewersRefreshInterval = setInterval(async () => {
                 await loadViewers();
             }, 10000); // 10 seconds = 10,000 ms
+
+            // Cleanup intervals on page unload to prevent memory leaks
+            window.addEventListener('beforeunload', () => {
+                if (statsRefreshInterval) clearInterval(statsRefreshInterval);
+                if (viewersRefreshInterval) clearInterval(viewersRefreshInterval);
+                if (autoStartTimer) clearInterval(autoStartTimer);
+                if (replayInterval) clearInterval(replayInterval);
+            });
 
             // Set up event listeners for UI controls
             document.getElementById('newGameBtn').addEventListener('click', () => {
@@ -923,12 +969,12 @@
             // Check for URL model parameter - create new game with specific models
             else if (urlSelectedModel || urlSelectedModel2) {
                 console.log("🎯 Starting game with pre-selected model(s):", urlSelectedModel, urlSelectedModel2);
-                localStorage.removeItem('currentGameId'); // Clear any saved game
+                safeLocalStorageRemove('currentGameId'); // Clear any saved game
                 startGame(true, urlSelectedModel, urlSelectedModel2); // Force new game with selected model(s)
             }
             // Check if user has a personal game in progress
             else {
-                const savedGameId = localStorage.getItem('currentGameId');
+                const savedGameId = safeLocalStorageGet('currentGameId');
                 if (savedGameId) {
                     // Try to resume their personal game
                     console.log("Found saved game ID:", savedGameId);
@@ -945,13 +991,13 @@
                                 connectWebSocket(savedGameId);
                             } else {
                                 console.log("Saved game no longer active, joining shared game");
-                                localStorage.removeItem('currentGameId');
+                                safeLocalStorageRemove('currentGameId');
                                 startGame(); // Join shared game
                             }
                         })
                         .catch(() => {
                             console.log("Error checking saved game, joining shared game");
-                            localStorage.removeItem('currentGameId');
+                            safeLocalStorageRemove('currentGameId');
                             startGame(); // Join shared game
                         });
                 } else {
@@ -1451,7 +1497,7 @@
                     data = await response.json();
                     currentGameId = data.game_id;
                     // Save personal game to localStorage
-                    localStorage.setItem('currentGameId', currentGameId);
+                    safeLocalStorageSet('currentGameId', currentGameId);
                     console.log("💾 Saved personal game to localStorage:", currentGameId);
                 } else {
                     // Get active game (for auto-start on page load)
@@ -1520,8 +1566,8 @@
             let wsUrl = `${protocol}//${window.location.host}/ws/${gameId}?chat_scope=${encodeURIComponent(chatScope)}`;
 
             // Try to restore username/color from localStorage
-            const savedUsername = localStorage.getItem('chat_username');
-            const savedColor = localStorage.getItem('chat_color');
+            const savedUsername = safeLocalStorageGet('chat_username');
+            const savedColor = safeLocalStorageGet('chat_color');
             if (savedUsername && savedColor) {
                 wsUrl += `&restore_username=${encodeURIComponent(savedUsername)}&restore_color=${encodeURIComponent(savedColor)}`;
             }
@@ -1717,8 +1763,8 @@
                     myUsername = message.username;
                     myColor = message.color || 'text-primary';
                     // Save to localStorage for session persistence across game changes
-                    localStorage.setItem('chat_username', myUsername);
-                    localStorage.setItem('chat_color', myColor);
+                    safeLocalStorageSet('chat_username', myUsername);
+                    safeLocalStorageSet('chat_color', myColor);
                     log(`Assigned chat username: ${myUsername} (${myColor}), chat_scope: ${message.chat_scope}`);
                     // Update chat viewer count from welcome message
                     if (message.chat_viewers) {
@@ -2502,7 +2548,7 @@
             currentThinkingPlayer = -1;
 
             // Clear saved game from localStorage when game ends
-            localStorage.removeItem('currentGameId');
+            safeLocalStorageRemove('currentGameId');
             console.log("🗑️ Cleared saved game from localStorage");
 
             let emoji = '🏁';
@@ -2529,6 +2575,8 @@
 
                 // Determine concise reason based on game ending
                 const reason = data.result.reason || '';
+                const safeReason = escapeHTML(reason);
+                const safeFriendlyReason = escapeHTML(data.friendly_reason || '');
                 if (reason.includes('checkmate')) {
                     reasonText = `**${winnerName}** delivered checkmate, trapping **${loserName}**'s king with no escape.`;
                 } else if (reason.includes('invalid move') || reason.includes('illegal move')) {
@@ -2540,7 +2588,7 @@
                 } else if (reason.includes('resign')) {
                     reasonText = `**${loserName}** resigned. **${winnerName}** wins.`;
                 } else {
-                    reasonText = data.friendly_reason || `**${winnerName}** won. ${reason}`;
+                    reasonText = safeFriendlyReason || `**${winnerName}** won. ${safeReason}`;
                 }
             } else if (data.result.result === 'draw') {
                 // No winner (draw)
@@ -2550,6 +2598,8 @@
                 winnerText = '';
 
                 const reason = data.result.reason || '';
+                const safeReason = escapeHTML(reason);
+                const safeFriendlyReason = escapeHTML(data.friendly_reason || '');
                 if (reason.includes('stalemate')) {
                     reasonText = 'Stalemate: The player to move has no legal moves but is not in check.';
                 } else if (reason.includes('repetition')) {
@@ -2561,7 +2611,7 @@
                 } else if (reason.includes('move_limit')) {
                     reasonText = 'Game reached 70-move limit with equal material. Draw.';
                 } else {
-                    reasonText = data.friendly_reason || `Draw. ${reason}`;
+                    reasonText = safeFriendlyReason || `Draw. ${safeReason}`;
                 }
             } else if (data.result.reason === 'timeout') {
                 // Timeout - no winner
@@ -2576,7 +2626,8 @@
                 emoji = '❓';
                 title = 'Game Ended';
                 winnerText = '';
-                reasonText = data.friendly_reason || 'The game ended unexpectedly.';
+                const safeFriendlyReason = escapeHTML(data.friendly_reason || '');
+                reasonText = safeFriendlyReason || 'The game ended unexpectedly.';
             }
 
             // Convert markdown bold (**text**) to HTML
@@ -3681,17 +3732,20 @@
         function emitTrailParticles(x, y, pieceColor) {
             // Add trail point for motion blur
             const trailColor = pieceColor === 'w' ? [220, 220, 255] : [180, 150, 200];
-            trailPoints.push({
-                x: x,
-                y: y,
-                life: 12,
-                maxLife: 12,
-                size: squareSize * 0.6,
-                color: trailColor
-            });
+            // Cap trail points to prevent memory growth
+            if (trailPoints.length < MAX_TRAIL_POINTS) {
+                trailPoints.push({
+                    x: x,
+                    y: y,
+                    life: 12,
+                    maxLife: 12,
+                    size: squareSize * 0.6,
+                    color: trailColor
+                });
+            }
 
-            // Emit small particles occasionally
-            if (random() < 0.4) {
+            // Emit small particles occasionally (with cap)
+            if (random() < 0.4 && particles.length < MAX_PARTICLES) {
                 particles.push(createParticle(
                     x + random(-10, 10),
                     y + random(-10, 10),
@@ -3702,12 +3756,14 @@
         }
 
         function emitCaptureExplosion(x, y) {
-            // Create explosion particles
-            for (let i = 0; i < 35; i++) {
+            // Create explosion particles (with cap)
+            const particlesToAdd = Math.min(35, MAX_PARTICLES - particles.length);
+            for (let i = 0; i < particlesToAdd; i++) {
                 particles.push(createParticle(x, y, 'capture'));
             }
-            // Add sparks
-            for (let i = 0; i < 20; i++) {
+            // Add sparks (with cap)
+            const sparksToAdd = Math.min(20, MAX_PARTICLES - particles.length);
+            for (let i = 0; i < sparksToAdd; i++) {
                 particles.push(createParticle(x, y, 'spark'));
             }
             // Trigger screen shake
@@ -3716,8 +3772,9 @@
             triggerImpactFlash(x, y, 80);
         }
 
-        // Create afterimage ghost of the piece
+        // Create afterimage ghost of the piece (with cap)
         function createAfterimage(x, y, symbol, alpha) {
+            if (afterimages.length >= MAX_AFTERIMAGES) return;
             afterimages.push({
                 x: x,
                 y: y,
@@ -3809,8 +3866,9 @@
             }
         }
 
-        // Speed lines emanating from moving piece
+        // Speed lines emanating from moving piece (with cap)
         function createSpeedLine(x, y, angle, pieceColor) {
+            if (speedLines.length >= MAX_SPEED_LINES) return;
             const lineColor = pieceColor === 'w' ? [200, 220, 255] : [220, 180, 255];
             speedLines.push({
                 x: x,
@@ -4117,6 +4175,9 @@
         }
 
         function createConfettiPiece() {
+            // Cap confetti to prevent memory issues
+            if (confetti.length >= MAX_CONFETTI) return;
+
             const colors = [
                 [255, 215, 0],   // Gold
                 [255, 100, 100], // Red
