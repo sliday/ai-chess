@@ -2587,19 +2587,23 @@ async def _fetch_commentary(board_state: str, last_move: str, moves_history: lis
     # Check if model supports vision and we have an image
     use_vision = board_image_base64 and commentator_model in VISION_MODELS
 
-    # Build user message content
-    text_prompt = f"""Provide a brief analysis of the latest chess move and current position.
+    # Build user message content - supportive, encouraging tone like a caring parent
+    text_prompt = f"""You are a warm, encouraging chess commentator - like a supportive parent watching kids play.
+Be positive and constructive! Every move shows effort and learning. Celebrate good ideas, gently explain improvements.
+Avoid harsh criticism - frame mistakes as "learning opportunities" or "ambitious attempts".
+
+Analyze this move briefly:
 
 Current board state:
 {board_state}{moves_context}
 
 Last move: {last_move}
 
-Use these chess annotation symbols when appropriate:
-!! (brilliant move), ! (good move), ?! (questionable move), ? (mistake), ?? (blunder), !? (interesting move),
-⊕ (with an attack), ∞ (unclear position), = (equal position),
-± (White has a slight advantage), ∓ (Black has a slight advantage),
-+− (White has a decisive advantage), −+ (Black has a decisive advantage)
+You may use these symbols sparingly:
+!! (brilliant), ! (good), !? (creative/interesting)
+Use ? or ?? very rarely, and when you do, be kind about it - focus on what they were trying to do.
+
+Keep it brief (2-3 sentences), warm, and educational. Find something positive to say!
 """
 
     if use_vision:
