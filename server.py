@@ -202,6 +202,36 @@ MODEL_BLACKLIST = {
     "perplexity/sonar-deep-research",
 }
 
+# Credit exhaustion state (set when 402 error received)
+_credits_exhausted = False
+_credits_reset_date = None
+
+def set_credits_exhausted():
+    """Mark credits as exhausted and calculate reset date (first of next month)"""
+    global _credits_exhausted, _credits_reset_date
+    _credits_exhausted = True
+    now = datetime.now()
+    # Reset on first of next month
+    if now.month == 12:
+        _credits_reset_date = datetime(now.year + 1, 1, 1).isoformat()
+    else:
+        _credits_reset_date = datetime(now.year, now.month + 1, 1).isoformat()
+    logger.warning(f"Credits exhausted! Reset date: {_credits_reset_date}")
+
+def clear_credits_exhausted():
+    """Clear the credits exhausted flag (e.g., after manual top-up)"""
+    global _credits_exhausted, _credits_reset_date
+    _credits_exhausted = False
+    _credits_reset_date = None
+    logger.info("Credits exhausted flag cleared")
+
+def get_credits_status():
+    """Get current credit status"""
+    return {
+        "exhausted": _credits_exhausted,
+        "reset_date": _credits_reset_date
+    }
+
 # Chat bot model and config
 CHAT_BOT_MODEL = "google/gemini-3-flash-preview"
 
@@ -713,6 +743,13 @@ class GameManager:
             use_previous_result: If True and there was a previous game with a winner,
                                 keep the winner and randomize only the loser
         """
+        # Check if credits are exhausted
+        if _credits_exhausted:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Credits exhausted. Resets on {_credits_reset_date}"
+            )
+
         # Input validation
         if model1 and not validate_string_input(model1, MAX_MODEL_NAME_LENGTH, "model1"):
             raise ValueError(f"Invalid model1: {model1}")
@@ -1430,6 +1467,11 @@ WARNING: Your previous move '{raw_move}' was INVALID for this position.
         done_tasks = [gid for gid, task in self.game_tasks.items() if task.done()]
         for gid in done_tasks:
             del self.game_tasks[gid]
+
+        # Check if credits are exhausted
+        if _credits_exhausted:
+            logger.warning(f"Credits exhausted - not starting autonomous game. Resets on {_credits_reset_date}")
+            return
 
         # Check if users are connected - if so, let them control game starts
         if self.has_active_connections():
@@ -2218,16 +2260,16 @@ Your move:
                     except (ValueError, KeyError):
                         pass
 
-                # Fast-fail for 402 "Out of funds" - void the game, don't count it
+                # Fast-fail for 402 "Out of funds" - set exhausted flag and void the game
                 if e.response.status_code == 402:
+                    set_credits_exhausted()
                     try:
                         error_data = e.response.json()
                         error_msg = error_data.get("error", {}).get("message", "")
                         logger.warning(f"Out of funds error (402 - {error_msg}), voiding game")
-                        return ("__VOID_GAME__", 0.0)  # Special marker to void the game
                     except (ValueError, KeyError):
                         logger.warning(f"Out of funds error (402), voiding game")
-                        return ("__VOID_GAME__", 0.0)
+                    return ("__VOID_GAME__", 0.0)  # Special marker to void the game
 
             # If there's an HTTP 400 error related to the model parameter, log it specially
             if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 400:
@@ -2867,6 +2909,17 @@ async def get_game_status(game_id: str):
             "model2": game.model2
         }
     return {"exists": False}
+
+@app.get("/credits_status")
+async def credits_status():
+    """Check if credits are exhausted (402 error received)"""
+    return get_credits_status()
+
+@app.post("/credits_reset")
+async def credits_reset():
+    """Manually clear the credits exhausted flag (after topping up)"""
+    clear_credits_exhausted()
+    return {"status": "ok", "message": "Credits exhausted flag cleared"}
 
 @app.on_event("startup")
 async def startup_event():

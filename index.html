@@ -600,6 +600,28 @@
         </div>
     </dialog>
 
+    <!-- Credits Exhausted Modal -->
+    <dialog id="creditsExhaustedModal" class="modal">
+        <div class="modal-box max-w-md max-h-[90vh] flex flex-col relative">
+            <div class="text-center flex-1 pt-2 pb-4">
+                <div class="text-5xl sm:text-6xl mb-3">💳</div>
+                <h3 class="font-bold text-xl sm:text-2xl mb-2">Credits Exhausted</h3>
+                <p class="text-sm mb-3">
+                    API credits have run out for this month.
+                </p>
+                <p class="text-sm mb-3">
+                    Games will resume on <strong id="creditsResetDate" class="text-primary"></strong>
+                </p>
+                <p class="text-xs text-base-content/60">
+                    Check back soon! The leaderboard and past games are still available.
+                </p>
+            </div>
+            <div class="modal-action justify-center mt-2 flex-shrink-0">
+                <button class="btn btn-sm btn-ghost" onclick="document.getElementById('creditsExhaustedModal').close()">OK</button>
+            </div>
+        </div>
+    </dialog>
+
     <script>
         /**
          * AI Chess Arena - Frontend JavaScript
@@ -811,6 +833,9 @@
             // Load available models from the server
             await loadModels();
 
+            // Check if credits are exhausted
+            await checkCreditsStatus();
+
             // Load stats and leaderboard data
             await loadStats();
             await loadSparklines();
@@ -839,6 +864,12 @@
 
             // Set up event listeners for UI controls
             document.getElementById('newGameBtn').addEventListener('click', () => {
+                // Check if credits are exhausted
+                if (creditsExhausted) {
+                    document.getElementById('creditsExhaustedModal').showModal();
+                    return;
+                }
+
                 // Clear auto-start timer if running
                 clearAutoNewGameTimer();
 
@@ -923,6 +954,11 @@
             // Start game with model from leaderboard
             document.getElementById('confirmStartWithModel').addEventListener('click', () => {
                 document.getElementById('startWithModelModal').close();
+                // Check if credits are exhausted
+                if (creditsExhausted) {
+                    document.getElementById('creditsExhaustedModal').showModal();
+                    return;
+                }
                 if (pendingModelForNewGame) {
                     // Clear any auto-start timer
                     clearAutoNewGameTimer();
@@ -1227,6 +1263,31 @@
         }
 
         // Load viewers count
+        // Track if credits are exhausted (prevents starting new games)
+        let creditsExhausted = false;
+
+        // Check if API credits are exhausted
+        async function checkCreditsStatus() {
+            try {
+                const response = await fetch('/credits_status');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                creditsExhausted = data.exhausted || false;
+                if (creditsExhausted && data.reset_date) {
+                    // Format the reset date nicely
+                    const resetDate = new Date(data.reset_date);
+                    const options = { year: 'numeric', month: 'long', day: 'numeric' };
+                    const formattedDate = resetDate.toLocaleDateString('en-US', options);
+                    document.getElementById('creditsResetDate').textContent = formattedDate;
+                    // Show the modal
+                    document.getElementById('creditsExhaustedModal').showModal();
+                    console.log('⚠️ Credits exhausted, reset date:', formattedDate);
+                }
+            } catch (error) {
+                console.error('Error checking credits status:', error);
+            }
+        }
+
         async function loadViewers() {
             try {
                 const response = await fetch('/viewers_count');
