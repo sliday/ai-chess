@@ -205,21 +205,21 @@ CHAT_BOT_MODEL = "google/gemini-3-flash-preview"
 
 # Event-based probabilities for chat bots (reduced to avoid spam)
 CHAT_BOT_PROBABILITIES = {
-    "normal_move": 0.05,     # 5% chance on regular moves
-    "good_move": 0.15,       # 15% on ! moves
-    "brilliant_move": 0.35,  # 35% on !! moves
-    "mistake": 0.2,          # 20% on ? moves
-    "blunder": 0.4,          # 40% on ?? moves
-    "game_over": 0.5,        # 50% on game end
-    "chat_response": 0.2,    # 20% to respond to interesting chat
-    "question_response": 0.7, # 70% to respond to user questions
-    "question_initiate": 0.05, # 5% to ask random question
-    "boredom": 0.25          # 25% when nothing is happening
+    "normal_move": 0.01,     # 1% chance on regular moves
+    "good_move": 0.03,       # 3% on ! moves
+    "brilliant_move": 0.1,   # 10% on !! moves
+    "mistake": 0.05,         # 5% on ? moves
+    "blunder": 0.1,          # 10% on ?? moves
+    "game_over": 0.15,       # 15% on game end
+    "chat_response": 0.05,   # 5% to respond to interesting chat
+    "question_response": 0.4, # 40% to respond to user questions
+    "question_initiate": 0.01, # 1% to ask random question
+    "boredom": 0.05          # 5% when nothing is happening
 }
 
 # Boredom mode config
-BOREDOM_INACTIVITY_THRESHOLD = 60  # seconds of no activity before boredom kicks in
-BOREDOM_CHECK_INTERVAL = 30        # seconds between boredom checks
+BOREDOM_INACTIVITY_THRESHOLD = 120  # seconds of no activity before boredom kicks in
+BOREDOM_CHECK_INTERVAL = 60         # seconds between boredom checks
 
 # Chat bot name pools (noun + matching emoji pairs)
 CHAT_BOT_ADJECTIVES = ["Happy", "Sleepy", "Chill", "Quick", "Bold", "Quiet", "Lazy", "Lucky", "Wild", "Cool"]
