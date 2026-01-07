@@ -1059,6 +1059,14 @@ No intro, no outro, only your next move in proper UCI format (e.g., "e2e4" for m
                     game.winner = 1 - game.current_player
                     game.reason = "timeout_forfeit"
                     break
+
+                # Handle "out of funds" - void the game entirely (don't count in ELO)
+                if raw_move == "__VOID_GAME__":
+                    logger.warning(f"Game {game.id} voided due to API payment error")
+                    game.status = "finished"
+                    game.winner = None  # No winner - game is void
+                    game.reason = "voided_api_error"
+                    break
                 
                 # ============================================================
                 # MOVE VALIDATION AND RETRY SYSTEM (Enhanced)
@@ -2207,6 +2215,17 @@ Your move:
                             return ("", 0.0)  # Forfeit - don't retry unavailable models
                     except (ValueError, KeyError):
                         pass
+
+                # Fast-fail for 402 "Out of funds" - void the game, don't count it
+                if e.response.status_code == 402:
+                    try:
+                        error_data = e.response.json()
+                        error_msg = error_data.get("error", {}).get("message", "")
+                        logger.warning(f"Out of funds error (402 - {error_msg}), voiding game")
+                        return ("__VOID_GAME__", 0.0)  # Special marker to void the game
+                    except (ValueError, KeyError):
+                        logger.warning(f"Out of funds error (402), voiding game")
+                        return ("__VOID_GAME__", 0.0)
 
             # If there's an HTTP 400 error related to the model parameter, log it specially
             if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 400:

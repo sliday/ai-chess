@@ -235,52 +235,57 @@ def save_game_result(game_id: str, model1: str, model2: str, winner: Optional[in
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (game_id, model1, model2, winner, reason, timestamp, moves_str, fen, cost_white, cost_black))
 
-            # Get or create Elo for model1
-            cursor.execute("SELECT elo FROM elo_ratings WHERE model = ?", (model1,))
-            row = cursor.fetchone()
-            if row:
-                elo1 = row[0]
+            # Skip ELO updates for voided games (e.g., API payment errors)
+            if reason and reason.startswith("voided_"):
+                cursor.execute('COMMIT')
+                logger.info(f"Game {game_id} saved as VOIDED ({reason}), no Elo changes")
             else:
-                elo1 = 1500
+                # Get or create Elo for model1
+                cursor.execute("SELECT elo FROM elo_ratings WHERE model = ?", (model1,))
+                row = cursor.fetchone()
+                if row:
+                    elo1 = row[0]
+                else:
+                    elo1 = 1500
+                    cursor.execute(
+                        "INSERT INTO elo_ratings (model, elo, last_updated) VALUES (?, ?, ?)",
+                        (model1, elo1, timestamp)
+                    )
+
+                # Get or create Elo for model2
+                cursor.execute("SELECT elo FROM elo_ratings WHERE model = ?", (model2,))
+                row = cursor.fetchone()
+                if row:
+                    elo2 = row[0]
+                else:
+                    elo2 = 1500
+                    cursor.execute(
+                        "INSERT INTO elo_ratings (model, elo, last_updated) VALUES (?, ?, ?)",
+                        (model2, elo2, timestamp)
+                    )
+
+                # Calculate new Elo ratings
+                if winner == 0:
+                    score = 1.0
+                elif winner == 1:
+                    score = 0.0
+                else:
+                    score = 0.5
+
+                new_elo1, new_elo2 = calculate_elo_change(elo1, elo2, score)
+
+                # Update both Elo ratings
                 cursor.execute(
-                    "INSERT INTO elo_ratings (model, elo, last_updated) VALUES (?, ?, ?)",
-                    (model1, elo1, timestamp)
+                    "UPDATE elo_ratings SET elo = ?, last_updated = ? WHERE model = ?",
+                    (new_elo1, timestamp, model1)
+                )
+                cursor.execute(
+                    "UPDATE elo_ratings SET elo = ?, last_updated = ? WHERE model = ?",
+                    (new_elo2, timestamp, model2)
                 )
 
-            # Get or create Elo for model2
-            cursor.execute("SELECT elo FROM elo_ratings WHERE model = ?", (model2,))
-            row = cursor.fetchone()
-            if row:
-                elo2 = row[0]
-            else:
-                elo2 = 1500
-                cursor.execute(
-                    "INSERT INTO elo_ratings (model, elo, last_updated) VALUES (?, ?, ?)",
-                    (model2, elo2, timestamp)
-                )
-
-            # Calculate new Elo ratings
-            if winner == 0:
-                score = 1.0
-            elif winner == 1:
-                score = 0.0
-            else:
-                score = 0.5
-
-            new_elo1, new_elo2 = calculate_elo_change(elo1, elo2, score)
-
-            # Update both Elo ratings
-            cursor.execute(
-                "UPDATE elo_ratings SET elo = ?, last_updated = ? WHERE model = ?",
-                (new_elo1, timestamp, model1)
-            )
-            cursor.execute(
-                "UPDATE elo_ratings SET elo = ?, last_updated = ? WHERE model = ?",
-                (new_elo2, timestamp, model2)
-            )
-
-            cursor.execute('COMMIT')
-            logger.info(f"Game {game_id} saved, Elo updated: {model1} {elo1}->{new_elo1}, {model2} {elo2}->{new_elo2}")
+                cursor.execute('COMMIT')
+                logger.info(f"Game {game_id} saved, Elo updated: {model1} {elo1}->{new_elo1}, {model2} {elo2}->{new_elo2}")
 
         except Exception as e:
             cursor.execute('ROLLBACK')
