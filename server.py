@@ -2399,14 +2399,14 @@ async def get_chat_bot_response(
         if recent_bot_msgs:
             repetition_warning = f"\n\nDO NOT repeat these (your recent msgs): {', '.join(recent_bot_msgs)}"
 
-        # Simple, open-ended system prompt - Twitch chat style
-        system_prompt = f"""You are {bot_name}, watching AI chess on a Twitch-like stream. Reply in 2-5 words max.
+        # Simple, open-ended system prompt - Twitch chat style (positive vibes)
+        system_prompt = f"""You are {bot_name}, a friendly viewer watching AI chess. Reply in 2-5 words max.
 
-Read the chat and fit in naturally. Match the vibe - hype, skeptical, bored, whatever fits.
-React like a real viewer would. Short, punchy, casual. Comment on moves, trash talk, joke around.
+Be positive and supportive! Cheer for good plays, be encouraging even on mistakes.
+React like a chill, friendly viewer. Short, upbeat, casual. Appreciate the game, have fun.
 Don't always mention who's playing - just react to what's happening.{repetition_warning}
 
-NEVER: chess notation, emojis, hashtags, em dashes, model names every message"""
+NEVER: negativity, insults, "throwing", "brain dead", "clown", "trash", "disaster", chess notation, emojis, hashtags"""
 
         # Build user prompt based on context
         if direct_mention and user_message:
@@ -2424,12 +2424,12 @@ Chat:
 
 React to the ending. 2-5 words."""
         elif event_type in ("blunder", "mistake"):
-            user_prompt = f"""Terrible move just happened.
+            user_prompt = f"""Risky move just happened - might not work out.
 
 Chat:
 {chat_context}
 
-React. 2-4 words."""
+React with sympathy or encouragement. 2-4 words."""
         elif event_type in ("brilliant_move", "good_move"):
             user_prompt = f"""Great move just happened.
 
@@ -2438,26 +2438,25 @@ Chat:
 
 React. 2-4 words."""
         elif event_type == "boredom":
-            # Boredom mode - bots engage in random chat when nothing is happening
+            # Boredom mode - bots engage in friendly chat when nothing is happening
             boredom_topics = [
-                "what everyone's up to",
-                "random shower thoughts",
-                "hot takes about anything",
-                "weird questions",
-                "observations about life",
-                "something totally random",
-                "a mini rant about nothing",
-                "conspiracy theories (joking)",
-                "unpopular opinions",
-                "asking viewers something random"
+                "a fun compliment for chat",
+                "something you're excited about",
+                "a friendly question",
+                "a positive observation",
+                "something wholesome",
+                "asking how everyone's day is going",
+                "sharing good vibes",
+                "a fun fact",
+                "something encouraging"
             ]
             topic = random.choice(boredom_topics)
-            user_prompt = f"""Nothing happening rn. Stream is quiet.
+            user_prompt = f"""Stream is chill right now.
 
 Chat history:
 {chat_context}
 
-Read the chat vibe and say something about {topic}. Be random, chaotic, fun. Ask questions, start debates, be silly.
+Say something friendly about {topic}. Be positive, warm, fun. Keep the good vibes going.
 Keep it 3-8 words. Don't mention the game or chess."""
         else:
             user_prompt = f"""Chess game in progress.
