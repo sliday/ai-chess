@@ -1393,9 +1393,14 @@
                 // Format streak with visual indicators
                 const streakHtml = formatStreak(entry.streak);
 
+                // Show plain text for blacklisted models (no link)
+                const modelCell = entry.blacklisted
+                    ? `<span class="text-gray-500" title="Model unavailable">${escapeHTML(displayName)}</span>`
+                    : `<a href="#" class="link link-hover text-sky-400 hover:text-sky-300 leaderboard-model" data-model="${escapeHTML(entry.model)}">${escapeHTML(displayName)}</a>`;
+
                 row.innerHTML = `
                     <td>${index + 1}</td>
-                    <td><a href="#" class="link link-hover text-sky-400 hover:text-sky-300 leaderboard-model" data-model="${escapeHTML(entry.model)}">${escapeHTML(displayName)}</a></td>
+                    <td>${modelCell}</td>
                     <td class="font-bold">${escapeHTML(String(entry.elo))}</td>
                     <td>${escapeHTML(String(entry.games))}</td>
                     <td>${escapeHTML(wld)}</td>
@@ -1405,12 +1410,14 @@
 
                 tbody.appendChild(row);
 
-                // Add click handler for model link
+                // Add click handler for model link (only if not blacklisted)
                 const modelLink = row.querySelector('.leaderboard-model');
-                modelLink.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    showStartWithModelModal(entry.model, displayName);
-                });
+                if (modelLink) {
+                    modelLink.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        showStartWithModelModal(entry.model, displayName);
+                    });
+                }
             });
         }
 

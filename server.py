@@ -2830,7 +2830,11 @@ async def get_leaderboard(min_games: int = 3):
     Args:
         min_games: Minimum number of games required to appear on leaderboard (default: 3)
     """
-    return {"leaderboard": game_manager.get_leaderboard(min_games)}
+    leaderboard = game_manager.get_leaderboard(min_games)
+    # Add blacklisted flag to each entry
+    for entry in leaderboard:
+        entry["blacklisted"] = entry.get("model", "") in MODEL_BLACKLIST
+    return {"leaderboard": leaderboard}
 
 @app.get("/active_game")
 async def get_active_game():
