@@ -194,6 +194,8 @@ MODEL_BLACKLIST = {
     "openai/o3-mini-high",
     # Anthropic expensive models
     "anthropic/claude-opus-4.1",
+    # xAI expensive models
+    "x-ai/grok-4",
     # Deep research models (typically expensive)
     "perplexity/sonar-deep-research",
 }
