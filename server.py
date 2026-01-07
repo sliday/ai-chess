@@ -203,23 +203,23 @@ MODEL_BLACKLIST = {
 # Chat bot model and config
 CHAT_BOT_MODEL = "google/gemini-3-flash-preview"
 
-# Event-based probabilities for chat bots
+# Event-based probabilities for chat bots (reduced to avoid spam)
 CHAT_BOT_PROBABILITIES = {
-    "normal_move": 0.15,     # 15% chance on regular moves
-    "good_move": 0.3,        # 30% on ! moves
-    "brilliant_move": 0.6,   # 60% on !! moves
-    "mistake": 0.4,          # 40% on ? moves
-    "blunder": 0.7,          # 70% on ?? moves
-    "game_over": 0.8,        # 80% on game end
-    "chat_response": 0.4,    # 40% to respond to interesting chat
-    "question_response": 0.8, # 80% to respond to user questions
-    "question_initiate": 0.1, # 10% to ask random question
-    "boredom": 0.6           # 60% when nothing is happening
+    "normal_move": 0.05,     # 5% chance on regular moves
+    "good_move": 0.15,       # 15% on ! moves
+    "brilliant_move": 0.35,  # 35% on !! moves
+    "mistake": 0.2,          # 20% on ? moves
+    "blunder": 0.4,          # 40% on ?? moves
+    "game_over": 0.5,        # 50% on game end
+    "chat_response": 0.2,    # 20% to respond to interesting chat
+    "question_response": 0.7, # 70% to respond to user questions
+    "question_initiate": 0.05, # 5% to ask random question
+    "boredom": 0.25          # 25% when nothing is happening
 }
 
 # Boredom mode config
-BOREDOM_INACTIVITY_THRESHOLD = 30  # seconds of no activity before boredom kicks in
-BOREDOM_CHECK_INTERVAL = 15        # seconds between boredom checks
+BOREDOM_INACTIVITY_THRESHOLD = 60  # seconds of no activity before boredom kicks in
+BOREDOM_CHECK_INTERVAL = 30        # seconds between boredom checks
 
 # Chat bot name pools (noun + matching emoji pairs)
 CHAT_BOT_ADJECTIVES = ["Happy", "Sleepy", "Chill", "Quick", "Bold", "Quiet", "Lazy", "Lucky", "Wild", "Cool"]
@@ -248,7 +248,7 @@ _bot1_name, _bot1_color = generate_chat_bot_name()
 CHAT_BOT_1 = {
     "username": _bot1_name,
     "color": _bot1_color,
-    "rate_limit": 8,
+    "rate_limit": 20,  # Minimum seconds between messages
     "activity_multiplier": 1.0,
     "last_message_time": 0,
     "recent_messages": [],
@@ -264,8 +264,8 @@ while _bot2_color == _bot1_color:
 CHAT_BOT_2 = {
     "username": _bot2_name,
     "color": _bot2_color,
-    "rate_limit": 12,
-    "activity_multiplier": 0.8,
+    "rate_limit": 30,  # Minimum seconds between messages
+    "activity_multiplier": 0.7,
     "last_message_time": 0,
     "recent_messages": [],
 }
