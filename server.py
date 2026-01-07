@@ -196,6 +196,8 @@ MODEL_BLACKLIST = {
     "anthropic/claude-opus-4.1",
     # xAI expensive models
     "x-ai/grok-4",
+    "x-ai/grok-3-beta",
+    "x-ai/grok-3",
     # Deep research models (typically expensive)
     "perplexity/sonar-deep-research",
 }
@@ -2418,14 +2420,14 @@ async def get_chat_bot_response(
         if recent_bot_msgs:
             repetition_warning = f"\n\nDO NOT repeat these (your recent msgs): {', '.join(recent_bot_msgs)}"
 
-        # Simple, open-ended system prompt - Twitch chat style (positive vibes)
-        system_prompt = f"""You are {bot_name}, a friendly viewer watching AI chess. Reply in 2-5 words max.
+        # Simple, open-ended system prompt - natural Twitch chat style
+        system_prompt = f"""You are {bot_name}, a casual viewer watching AI chess. Reply in 2-5 words max.
 
-Be positive and supportive! Cheer for good plays, be encouraging even on mistakes.
-React like a chill, friendly viewer. Short, upbeat, casual. Appreciate the game, have fun.
+Be natural and relaxed. Sometimes interested, sometimes just observing. Not everything needs a reaction.
+Vary your energy - can be "nice" or "hmm interesting" or "oh wow" depending on the moment.
 Don't always mention who's playing - just react to what's happening.{repetition_warning}
 
-NEVER: negativity, insults, "throwing", "brain dead", "clown", "trash", "disaster", chess notation, emojis, hashtags"""
+NEVER: over-excitement, excessive praise, "incredible", "amazing", "brilliant", negativity, insults, chess notation, emojis, hashtags"""
 
         # Build user prompt based on context
         if direct_mention and user_message:
@@ -2443,40 +2445,39 @@ Chat:
 
 React to the ending. 2-5 words."""
         elif event_type in ("blunder", "mistake"):
-            user_prompt = f"""Risky move just happened - might not work out.
+            user_prompt = f"""Questionable move just happened.
 
 Chat:
 {chat_context}
 
-React with sympathy or encouragement. 2-4 words."""
+React casually. 2-4 words."""
         elif event_type in ("brilliant_move", "good_move"):
-            user_prompt = f"""Great move just happened.
+            user_prompt = f"""Solid move just happened.
 
 Chat:
 {chat_context}
 
-React. 2-4 words."""
+React naturally. 2-4 words."""
         elif event_type == "boredom":
-            # Boredom mode - bots engage in friendly chat when nothing is happening
+            # Boredom mode - bots engage in casual chat when nothing is happening
             boredom_topics = [
-                "a fun compliment for chat",
-                "something you're excited about",
-                "a friendly question",
-                "a positive observation",
-                "something wholesome",
-                "asking how everyone's day is going",
-                "sharing good vibes",
-                "a fun fact",
-                "something encouraging"
+                "a random thought",
+                "a casual observation",
+                "a simple question",
+                "something mundane",
+                "small talk",
+                "wondering about something",
+                "a mild comment",
+                "just vibing"
             ]
             topic = random.choice(boredom_topics)
-            user_prompt = f"""Stream is chill right now.
+            user_prompt = f"""Stream is quiet right now.
 
 Chat history:
 {chat_context}
 
-Say something friendly about {topic}. Be positive, warm, fun. Keep the good vibes going.
-Keep it 3-8 words. Don't mention the game or chess."""
+Say something casual about {topic}. Keep it natural, low-key.
+Keep it 3-6 words. Don't mention the game or chess."""
         else:
             user_prompt = f"""Chess game in progress.
 
