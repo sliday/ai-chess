@@ -2260,16 +2260,27 @@ Your move:
                     except (ValueError, KeyError):
                         pass
 
-                # Fast-fail for 402 "Out of funds" - set exhausted flag and void the game
+                # Handle 402 errors - distinguish between "out of credits" vs "request too expensive"
                 if e.response.status_code == 402:
-                    set_credits_exhausted()
                     try:
                         error_data = e.response.json()
-                        error_msg = error_data.get("error", {}).get("message", "")
-                        logger.warning(f"Out of funds error (402 - {error_msg}), voiding game")
+                        error_msg = error_data.get("error", {}).get("message", "").lower()
+
+                        # Check if this is a per-request limit (not true exhaustion)
+                        if "max_tokens" in error_msg or "fewer" in error_msg:
+                            # This model just needs too many tokens - skip it, don't mark exhausted
+                            logger.warning(f"Model {current_model} request too expensive (402 - {error_msg}), forfeiting")
+                            return ("", 0.0)  # Forfeit this model, but don't void game
+                        else:
+                            # True credit exhaustion
+                            set_credits_exhausted()
+                            logger.warning(f"Out of funds error (402 - {error_msg}), voiding game")
+                            return ("__VOID_GAME__", 0.0)
                     except (ValueError, KeyError):
+                        # Can't parse error, assume worst case
+                        set_credits_exhausted()
                         logger.warning(f"Out of funds error (402), voiding game")
-                    return ("__VOID_GAME__", 0.0)  # Special marker to void the game
+                        return ("__VOID_GAME__", 0.0)
 
             # If there's an HTTP 400 error related to the model parameter, log it specially
             if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 400:
